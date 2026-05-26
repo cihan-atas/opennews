@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # 1. Yerel Veritabanı (12-Factor: Backing Services)
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: news-and-podcast-db
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "5432:5432"  # Local standart porta sabitledik
+    volumes:
+      - news_and_podcast_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. Redis (Celery Mesaj Taşıyıcı)
+  redis:
+    image: redis:alpine
+    container_name: news-and-podcast-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 3. FastAPI Uygulaması (12-Factor: Processes)
+  api:
+    build: .
+    container_name: news-and-podcast-api
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 4. Amele Celery Worker: Sadece uzun süren scraper işlerini yapar
+  scraper-worker:
+    build: .
+    container_name: news-and-podcast-scraper-worker
+    command: celery -A worker.celery_app worker --loglevel=info --concurrency=1 -Q scraper_queue # 1 tane worker çalıştır, böylece scraper'ın eşzamanlı çalışması engellenir. 1'den fazla çalışırsa .scraper_seen_urls.json dosyasına aynı url'ler yazılabilir ve bu da scraper'ın verimsiz çalışmasına neden olabilir.
+    env_file: 
+      - .env
+    volumes:
+      - .:/app  # Kodları ve scraper hafızasını bilgisayarla senkronize eder
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 5. VIP Worker: Podcast isteklerini anında yakalar
+  ai-worker:
+    build: .
+    container_name: news-and-podcast-ai-worker
+    command: celery -A worker.celery_app worker --loglevel=info --concurrency=4 -Q ai_queue
+    env_file: 
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 6. React Frontend
+  frontend:
+    build: ./frontend
+    container_name: news-and-podcast-frontend
+    ports:
+      - "5173:5173"
+    # Yerelde prod sunucusu sirv yerine Vite dev sunucusunu zorluyoruz
+    command: npm run dev -- --host
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/dist
+    env_file:
+      - .env
+    environment:
+      - VITE_API_URL=http://localhost:8080
+    depends_on:
+      - api
+
+volumes:
+  news_and_podcast_postgres_data:

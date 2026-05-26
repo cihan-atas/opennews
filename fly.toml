@@ -1,0 +1,53 @@
+# Fly.io — API servisi
+# fly launch ile oluşturulur; fly deploy ile güncellenir.
+# Ücretsiz tier: shared-cpu-1x, 256MB RAM (3 VM'e kadar ücretsiz)
+#
+# Kurulum:
+#   fly auth login
+#   fly apps create newsflow-api
+#   fly secrets set DATABASE_URL="postgresql://..." SECRET_KEY="..." CELERY_BROKER_URL="rediss://..." ...
+#   fly deploy
+
+app = "newsflow-api"
+primary_region = "ams"  # Amsterdam — TR'ye en yakın ücretsiz bölge
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  POSTGRES_DB = "news_and_podcast"
+  AI_PROVIDER = "vertex"
+  EMBEDDING_PROVIDER = "vertex"
+  TTS_PROVIDER = "edge"
+  STORAGE_PROVIDER = "s3"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+    force_https = true
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "get"
+    path = "/"
+
+[resources]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256

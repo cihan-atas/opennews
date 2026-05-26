@@ -1,0 +1,31 @@
+# Fly.io — Celery worker'lar (scraper + ai)
+# fly deploy --config fly.worker.toml --app newsflow-workers
+#
+# NOT: Worker'lar HTTP servisi değil, background process.
+# Fly.io'da HTTP check olmadan "machines" olarak çalıştırılır.
+
+app = "newsflow-workers"
+primary_region = "ams"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  POSTGRES_DB = "news_and_podcast"
+  TTS_PROVIDER = "edge"
+  STORAGE_PROVIDER = "s3"
+
+# Scraper worker
+[[processes]]
+  name = "scraper"
+  cmd = "celery -A worker.celery_app worker --loglevel=info --concurrency=1 -Q scraper_queue"
+
+# AI + TTS worker
+[[processes]]
+  name = "ai"
+  cmd = "celery -A worker.celery_app worker --loglevel=info --concurrency=2 -Q ai_queue"
+
+[resources]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
