@@ -74,7 +74,13 @@ def prepare_tts_script(text: str) -> str:
 
 
 def segment_for_tts(text: str) -> list:
-    """Metni Türkçe/İngilizce segmentlere böler.
+    """Metni Türkçe/İngilizce segmentlere böler, TTS normalizasyonu uygular.
+
+    Aynı anda iki iş yapar:
+    - Dil ayrımı: marka/İngilizce → lang:'en', Türkçe → lang:'tr'
+    - Normalizasyon (TR segmentlerde):
+        * Büyük harf kısaltmalar → Türkçe harf adlarıyla yaz (MFA→em ef a)
+        * İngilizce köklü Türkçe eylemler → fonetik (hackledi→hekledi)
 
     Dönen format: [{"text": "...", "lang": "tr"}, {"text": "...", "lang": "en"}, ...]
     Hata durumunda tek 'tr' segmenti döner.
@@ -83,24 +89,30 @@ def segment_for_tts(text: str) -> list:
 
     cleaned = _symbol_cleanup(text)
     prompt = (
-        "Aşağıdaki Türkçe podcast metnini, TTS için dil segmentlerine böl.\n"
-        "Marka adları, kısaltmalar ve İngilizce kelimeler → lang: 'en'\n"
-        "Türkçe kelimeler ve cümleler → lang: 'tr'\n"
-        "Türkçeleşmiş yabancı kelimeler (internet, sistem, dijital, platform vb.) → lang: 'tr'\n"
-        "Her segmentin text değerindeki boşluk/noktalama metnin orijinalini koru.\n"
-        "Sadece JSON döndür, başka hiçbir şey ekleme:\n\n"
+        "Aşağıdaki Türkçe podcast metnini TTS için segmentlere böl ve normalize et.\n\n"
+        "KURALLAR:\n"
+        "1. Marka adları, İngilizce kelimeler, özel isimler → lang:'en', metni olduğu gibi bırak.\n"
+        "2. Türkçe metin → lang:'tr'.\n"
+        "3. Büyük harfli kısaltmalar Türkçe metindeyse → lang:'tr' ama Türkçe harf adlarıyla yaz:\n"
+        "   MFA → em ef a | FBI → ef bi ay | CEO → si i o | API → ey pi ay\n"
+        "   CIA → si ay ey | GPU → ci pi yu | CPU → si pi yu | AI → ey ay\n"
+        "   (NATO, TBMM gibi Türkçe okunabilenler aynen kalır)\n"
+        "4. İngilizce köklü Türkçe eylemler → lang:'tr', fonetik yaz:\n"
+        "   hackledi→hekledi | hacklediler→heklediler | tweetledi→tvitledi\n"
+        "   likeledi→laykledi | retweetledi→ritvitledi | downladı→daunlodladı\n"
+        "5. Türkçeleşmiş kelimeler (internet, sistem, dijital, platform vb.) → lang:'tr'.\n"
+        "6. Boşluk ve noktalama orijinal metindeki gibi korunmalı.\n"
+        "Sadece JSON döndür:\n\n"
         '[ {"text": "...", "lang": "tr"}, {"text": "...", "lang": "en"} ]\n\n'
         "Örnek girdi:\n"
-        "GitHub üzerinde çalışan startup ekibi OpenAI ile yeni bir API yayınladı.\n\n"
+        "MFA sistemi GitHub hesabını hackledi. OpenAI CEO'su açıklama yaptı.\n\n"
         "Örnek çıktı:\n"
-        '[ {"text": "GitHub", "lang": "en"},'
-        ' {"text": " üzerinde çalışan ", "lang": "tr"},'
-        ' {"text": "startup", "lang": "en"},'
-        ' {"text": " ekibi ", "lang": "tr"},'
+        '[ {"text": "em ef a", "lang": "tr"},'
+        ' {"text": " sistemi ", "lang": "tr"},'
+        ' {"text": "GitHub", "lang": "en"},'
+        ' {"text": " hesabını hekledi. ", "lang": "tr"},'
         ' {"text": "OpenAI", "lang": "en"},'
-        ' {"text": " ile yeni bir ", "lang": "tr"},'
-        ' {"text": "API", "lang": "en"},'
-        ' {"text": " yayınladı.", "lang": "tr"} ]\n\n'
+        ' {"text": " si i o\'su açıklama yaptı.", "lang": "tr"} ]\n\n'
         f"Metin:\n{cleaned}"
     )
     try:
