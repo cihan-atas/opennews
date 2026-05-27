@@ -50,6 +50,55 @@ def translate(text: str, target_lang: str) -> str:
     return generate(prompt, quality=True)
 
 
+# Sembol → yazı: TTS'e gitmeden önce basit temizlik (AI fallback'inden önce çalışır)
+_SYMBOL_MAP = [
+    (re.compile(r'\$\s*(\d+)'),     r'\1 dolar'),
+    (re.compile(r'€\s*(\d+)'),      r'\1 euro'),
+    (re.compile(r'£\s*(\d+)'),      r'\1 sterlin'),
+    (re.compile(r'(\d+)\s*%'),      r'yüzde \1'),
+    (re.compile(r'\s&\s'),          ' ve '),
+    (re.compile(r'https?://\S+'),   ''),
+    (re.compile(r'www\.\S+'),       ''),
+]
+
+
+def _symbol_cleanup(text: str) -> str:
+    for pattern, repl in _SYMBOL_MAP:
+        text = pattern.sub(repl, text)
+    return re.sub(r'\s{2,}', ' ', text).strip()
+
+
+def prepare_tts_script(text: str) -> str:
+    """Podcast scriptini Türkçe TTS için hazırlar.
+
+    İngilizce kelimeler, kısaltmalar ve semboller Türkçe okunuşa dönüştürülür.
+    Hata durumunda sembol temizliği uygulanmış orijinal metin döner.
+    """
+    cleaned = _symbol_cleanup(text)
+    prompt = (
+        "Aşağıdaki Türkçe podcast metnini sesli okuma (TTS) için düzenle. "
+        "SADECE şu değişiklikleri yap, başka hiçbir şeyi değiştirme:\n"
+        "1. İngilizce kelimeleri Türkçe karşılığına veya Türkçe fonetik yazımına çevir.\n"
+        "   Örnekler: ChatGPT→Çet-Ci-Pi-Ti, API→Eypiai, iPhone→Ayvon, "
+        "startup→girişim, online→çevrimiçi, tweet→tvit, "
+        "app→uygulama, AI→yapay zeka, update→güncelleme, "
+        "CEO→Si-İ-O, NASA→Nasa, FBI→Ef-Bi-Ay, NATO→Nato.\n"
+        "2. Büyük harf kısaltmaları fonetik yaz: GPT→Ci-Pi-Ti, LLM→El-El-Em.\n"
+        "3. Rakam+birim: '5K' → 'beş bin', '2B' → 'iki milyar'.\n"
+        "4. Cümle ekleyip çıkarma — sadece kelime değişimi yap.\n"
+        "5. Sadece düzenlenmiş metni döndür, açıklama ekleme.\n\n"
+        f"{cleaned}"
+    )
+    try:
+        result = generate(prompt, quality=False)
+        # Boş veya çok kısa yanıt gelirse orijinale dön
+        if len(result.strip()) < len(cleaned) * 0.5:
+            return cleaned
+        return result.strip()
+    except Exception:
+        return cleaned
+
+
 # ── Groq ─────────────────────────────────────────────────────────────────────
 # Modeller (config.py'de ayarlanır):
 #   GROQ_MODEL         = llama-3.1-8b-instant        → 14.4K istek/gün, hızlı
