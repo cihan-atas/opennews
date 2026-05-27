@@ -104,7 +104,7 @@ def segment_for_tts(text: str) -> list:
         f"Metin:\n{cleaned}"
     )
     try:
-        raw = generate(prompt, quality=False).strip()
+        raw = _groq_generate(prompt, model=settings.GROQ_SEGMENT_MODEL).strip()
         # AI bazen ```json...``` sarmalı kullanır
         if "```" in raw:
             raw = raw.split("```")[1]
@@ -145,9 +145,10 @@ def _get_groq_client():
     return _GROQ_CLIENT
 
 
-def _groq_generate(prompt: str, quality: bool = False) -> str:
+def _groq_generate(prompt: str, quality: bool = False, model: str = None) -> str:
     client = _get_groq_client()
-    model = settings.GROQ_QUALITY_MODEL if quality else settings.GROQ_MODEL
+    if model is None:
+        model = settings.GROQ_QUALITY_MODEL if quality else settings.GROQ_MODEL
     response = client.chat.completions.create(
         model=model,
         messages=[

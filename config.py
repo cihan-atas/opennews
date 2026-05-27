@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     # meta-llama/llama-4-scout-17b-16e-instruct → en yeni Llama 4
     # qwen/qwen3-32b                            → güçlü Türkçe, 60 RPM
     GROQ_QUALITY_MODEL: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    # Segment model: TR/EN dil ayrımı — 70B güçlü, 14.4K/gün aynı limit
+    GROQ_SEGMENT_MODEL: str = "llama-3.3-70b-versatile"
     # STT: konuşmadan metne (podcast transkripti)
     STT_PROVIDER: str = "groq"              # groq (whisper)
     GROQ_STT_MODEL: str = "whisper-large-v3-turbo"  # hız/doğruluk dengesi
