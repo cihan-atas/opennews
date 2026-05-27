@@ -69,13 +69,60 @@ def _symbol_cleanup(text: str) -> str:
 
 
 def prepare_tts_script(text: str) -> str:
-    """Podcast scriptini TTS için hazırlar.
-
-    en-US-AndrewMultilingualNeural sesi metin içindeki dili otomatik algılar:
-    Türkçe kısımlar Türkçe, İngilizce kelimeler İngilizce okunur.
-    Bu fonksiyon sembol temizliği yapar; dil etiketleme gerekmiyor.
-    """
+    """Sembol temizliği yapar; segment_for_tts() ile kullanılır."""
     return _symbol_cleanup(text)
+
+
+def segment_for_tts(text: str) -> list:
+    """Metni Türkçe/İngilizce segmentlere böler.
+
+    Dönen format: [{"text": "...", "lang": "tr"}, {"text": "...", "lang": "en"}, ...]
+    Hata durumunda tek 'tr' segmenti döner.
+    """
+    import json
+
+    cleaned = _symbol_cleanup(text)
+    prompt = (
+        "Aşağıdaki Türkçe podcast metnini, TTS için dil segmentlerine böl.\n"
+        "Marka adları, kısaltmalar ve İngilizce kelimeler → lang: 'en'\n"
+        "Türkçe kelimeler ve cümleler → lang: 'tr'\n"
+        "Türkçeleşmiş yabancı kelimeler (internet, sistem, dijital, platform vb.) → lang: 'tr'\n"
+        "Her segmentin text değerindeki boşluk/noktalama metnin orijinalini koru.\n"
+        "Sadece JSON döndür, başka hiçbir şey ekleme:\n\n"
+        '[ {"text": "...", "lang": "tr"}, {"text": "...", "lang": "en"} ]\n\n'
+        "Örnek girdi:\n"
+        "GitHub üzerinde çalışan startup ekibi OpenAI ile yeni bir API yayınladı.\n\n"
+        "Örnek çıktı:\n"
+        '[ {"text": "GitHub", "lang": "en"},'
+        ' {"text": " üzerinde çalışan ", "lang": "tr"},'
+        ' {"text": "startup", "lang": "en"},'
+        ' {"text": " ekibi ", "lang": "tr"},'
+        ' {"text": "OpenAI", "lang": "en"},'
+        ' {"text": " ile yeni bir ", "lang": "tr"},'
+        ' {"text": "API", "lang": "en"},'
+        ' {"text": " yayınladı.", "lang": "tr"} ]\n\n'
+        f"Metin:\n{cleaned}"
+    )
+    try:
+        raw = generate(prompt, quality=False).strip()
+        # AI bazen ```json...``` sarmalı kullanır
+        if "```" in raw:
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        segments = json.loads(raw.strip())
+        if not isinstance(segments, list) or not segments:
+            return [{"text": cleaned, "lang": "tr"}]
+        # Ardışık aynı-dil segmentleri birleştir (az API çağrısı)
+        merged: list = []
+        for seg in segments:
+            if merged and merged[-1]["lang"] == seg.get("lang"):
+                merged[-1]["text"] += seg["text"]
+            else:
+                merged.append({"text": seg["text"], "lang": seg.get("lang", "tr")})
+        return merged
+    except Exception:
+        return [{"text": cleaned, "lang": "tr"}]
 
 
 # ── Groq ─────────────────────────────────────────────────────────────────────

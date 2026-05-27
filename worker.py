@@ -58,13 +58,13 @@ def process_news_and_tts_task(news_id: int, user_id: int):
         db.commit()
         print("[Worker] Embedding kaydedildi.")
 
-        # 3. TTS öncesi scripti Türkçe okuma için hazırla (İng. kelimeler → fonetik)
-        print("[Worker] TTS scripti hazırlanıyor...")
-        tts_script = ai_service.prepare_tts_script(summary)
+        # 3. Metni Türkçe/İngilizce segmentlere böl
+        print("[Worker] Dil segmentasyonu yapılıyor...")
+        segments = ai_service.segment_for_tts(summary)
+        print(f"[Worker] {len(segments)} segment — TR/EN çift ses ile sentezleniyor...")
 
-        # 4. TTS ile .mp3 üret (sağlayıcı .env'den: google/edge)
-        print("[Worker] TTS ile ses üretiliyor...")
-        audio_bytes = tts_service.synthesize(tts_script)
+        # 4. TTS ile .mp3 üret
+        audio_bytes = tts_service.synthesize_segmented(segments)
         with open(tmp_path, "wb") as f:
             f.write(audio_bytes)
         print(f"[Worker] Ses dosyası oluşturuldu: {tmp_path}")
@@ -175,16 +175,16 @@ def process_rss_article_tts_task(title: str, content: str, user_id: int, source_
             f"Başlık: {title}\n\nİçerik: {content[:3000]}"
         )
         summary = ai_service.generate(prompt)
-        tts_script = ai_service.prepare_tts_script(summary)
+        segments = ai_service.segment_for_tts(summary)
 
-        audio_bytes = tts_service.synthesize(tts_script)
+        audio_bytes = tts_service.synthesize_segmented(segments)
         with open(tmp_path, "wb") as f:
             f.write(audio_bytes)
 
         destination_blob = f"podcasts/rss_{tmp_key}.mp3"
         audio_url = upload_to_gcs(tmp_path, destination_blob)
 
-        word_count = len(tts_script.split())
+        word_count = len(summary.split())
         duration_seconds = max(1, int(word_count / 150 * 60))
 
         podcast = models.Podcast(
