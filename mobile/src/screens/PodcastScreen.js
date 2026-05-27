@@ -120,7 +120,7 @@ export default function PodcastScreen() {
           >
             <Text style={styles.playBtnText}>{isCurrent ? '✕ Kapat' : '▶ Oynat'}</Text>
           </Pressable>
-          {!pod.news_id && pod.source_url && (
+          {!!pod.source_url && (
             <Pressable onPress={() => Linking.openURL(pod.source_url)} style={styles.navBtn}>
               <Text style={{ color: colors.textMuted, fontWeight: '600' }}>🔗 Kaynak</Text>
             </Pressable>

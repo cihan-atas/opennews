@@ -85,6 +85,7 @@ def process_news_and_tts_task(news_id: int, user_id: int):
             user_id=user_id,
             duration=duration_seconds,
             news_id=news_id,
+            source_url=news.source_url,
         )
         db.add(podcast)
         db.commit()

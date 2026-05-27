@@ -50,7 +50,7 @@ def translate(text: str, target_lang: str) -> str:
     return generate(prompt, quality=True)
 
 
-# Sembol → yazı: TTS'e gitmeden önce basit temizlik (AI fallback'inden önce çalışır)
+# Sembol → yazı: TTS'e gitmeden önce deterministik temizlik
 _SYMBOL_MAP = [
     (re.compile(r'\$\s*(\d+)'),     r'\1 dolar'),
     (re.compile(r'€\s*(\d+)'),      r'\1 euro'),
@@ -61,6 +61,38 @@ _SYMBOL_MAP = [
     (re.compile(r'www\.\S+'),       ''),
 ]
 
+# Yaygın tech marka adları → Türkçe fonetik (case-insensitive, tam kelime eşleşmesi)
+_BRAND_MAP = [
+    (r'\bGitHub\b',        'Githab'),
+    (r'\bYouTube\b',       'Yutub'),
+    (r'\bWhatsApp\b',      'Vatsap'),
+    (r'\bLinkedIn\b',      'Linkdın'),
+    (r'\bNetflix\b',       'Netfliks'),
+    (r'\bSpotify\b',       'Spotifay'),
+    (r'\bFacebook\b',      'Feysbuk'),
+    (r'\bInstagram\b',     'İnstagram'),
+    (r'\bTikTok\b',        'Tiktok'),
+    (r'\bOpenAI\b',        'Open-Eyi'),
+    (r'\bChatGPT\b',       'Çet-Ci-Pi-Ti'),
+    (r'\bGPT-(\w+)\b',     r'Ci-Pi-Ti-\1'),
+    (r'\bSpaceX\b',        'Speys-İks'),
+    (r'\bX\.com\b',        'Eks nokta com'),
+    (r'\bApple\b',         'Eypıl'),
+    (r'\bMicrosoft\b',     'Maykrosaft'),
+    (r'\biPhone\b',        'Ayvon'),
+    (r'\biPad\b',          'Ayped'),
+    (r'\bMacBook\b',       'Mekbuk'),
+    (r'\bAndroid\b',       'Endıroyd'),
+    (r'\bGoogle\b',        'Gugıl'),
+    (r'\bAmazon\b',        'Amazon'),
+    (r'\bTesla\b',         'Tesla'),
+    (r'\bTwitter\b',       'Tvitır'),
+    (r'\bReddit\b',        'Redit'),
+    (r'\bDropbox\b',       'Dropboks'),
+    (r'\bPayPal\b',        'Peypel'),
+]
+_BRAND_PATTERNS = [(re.compile(p, re.IGNORECASE), r) for p, r in _BRAND_MAP]
+
 
 def _symbol_cleanup(text: str) -> str:
     for pattern, repl in _SYMBOL_MAP:
@@ -68,30 +100,35 @@ def _symbol_cleanup(text: str) -> str:
     return re.sub(r'\s{2,}', ' ', text).strip()
 
 
+def _brand_cleanup(text: str) -> str:
+    for pattern, repl in _BRAND_PATTERNS:
+        text = pattern.sub(repl, text)
+    return text
+
+
 def prepare_tts_script(text: str) -> str:
     """Podcast scriptini Türkçe TTS için hazırlar.
 
-    İngilizce kelimeler, kısaltmalar ve semboller Türkçe okunuşa dönüştürülür.
-    Hata durumunda sembol temizliği uygulanmış orijinal metin döner.
+    1. Deterministik: semboller ve bilinen marka adları değiştirilir.
+    2. AI: geri kalan İngilizce kelimeler Türkçeleştirilir.
+    Hata durumunda deterministik temizlik uygulanmış metin döner.
     """
-    cleaned = _symbol_cleanup(text)
+    cleaned = _brand_cleanup(_symbol_cleanup(text))
     prompt = (
         "Aşağıdaki Türkçe podcast metnini sesli okuma (TTS) için düzenle. "
         "SADECE şu değişiklikleri yap, başka hiçbir şeyi değiştirme:\n"
-        "1. İngilizce kelimeleri Türkçe karşılığına veya Türkçe fonetik yazımına çevir.\n"
-        "   Örnekler: ChatGPT→Çet-Ci-Pi-Ti, API→Eypiai, iPhone→Ayvon, "
-        "startup→girişim, online→çevrimiçi, tweet→tvit, "
-        "app→uygulama, AI→yapay zeka, update→güncelleme, "
-        "CEO→Si-İ-O, NASA→Nasa, FBI→Ef-Bi-Ay, NATO→Nato.\n"
-        "2. Büyük harf kısaltmaları fonetik yaz: GPT→Ci-Pi-Ti, LLM→El-El-Em.\n"
-        "3. Rakam+birim: '5K' → 'beş bin', '2B' → 'iki milyar'.\n"
-        "4. Cümle ekleyip çıkarma — sadece kelime değişimi yap.\n"
-        "5. Sadece düzenlenmiş metni döndür, açıklama ekleme.\n\n"
+        "1. Kalan İngilizce kelimeleri Türkçe karşılığına veya Türkçe fonetik yazımına çevir.\n"
+        "   Örnekler: API→Eypiai, startup→girişim, online→çevrimiçi, "
+        "tweet→tvit, app→uygulama, AI→yapay zeka, update→güncelleme, "
+        "CEO→Si-İ-O, NASA→Nasa, FBI→Ef-Bi-Ay, NATO→Nato, "
+        "LLM→El-El-Em, GPU→Ci-Pi-Yu, CPU→Si-Pi-Yu.\n"
+        "2. Rakam+birim: '5K'→'beş bin', '2B'→'iki milyar', '1T'→'bir trilyon'.\n"
+        "3. Cümle ekleyip çıkarma — sadece kelime değişimi yap.\n"
+        "4. Sadece düzenlenmiş metni döndür, açıklama ekleme.\n\n"
         f"{cleaned}"
     )
     try:
         result = generate(prompt, quality=False)
-        # Boş veya çok kısa yanıt gelirse orijinale dön
         if len(result.strip()) < len(cleaned) * 0.5:
             return cleaned
         return result.strip()
