@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     S3_PUBLIC_BASE_URL: str = ""
 
     # Edge TTS (TTS_PROVIDER=edge için)
-    EDGE_TTS_VOICE: str = "tr-TR-EmelNeural"
+    EDGE_TTS_VOICE: str = "en-US-AndrewMultilingualNeural"
 
     # Pydantic'e .env dosyasını nasıl okuyacağını söylüyoruz
     model_config = SettingsConfigDict(

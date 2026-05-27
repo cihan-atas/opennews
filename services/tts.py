@@ -3,6 +3,9 @@
 Sağlayıcılar:
   - google (varsayılan): Google Cloud Text-to-Speech
   - edge: edge-tts (ücretsiz, anahtarsız, Microsoft Azure sesleri)
+
+Çok dilli ses (en-US-AndrewMultilingualNeural) metin içindeki dili
+otomatik algılar: Türkçe kısımlar Türkçe, İngilizce kelimeler İngilizce okunur.
 """
 from config import settings
 

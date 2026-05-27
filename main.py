@@ -25,7 +25,9 @@ app = FastAPI(
 # .env dosyasında VITE_API_URL'in hemen altına FRONTEND_URL=http://localhost:5173 yazabilirsin.
 # Canlıya çıkarken de deploy.yml içinden bunu canlı linkle besleyeceğiz.
 allowed_origins = [
-    "http://localhost:5173",  # Local her zaman izinli kalsın
+    "http://localhost:5173",  # Vite web
+    "http://localhost:8081",  # Expo web
+    "http://localhost:19006", # Expo web (eski port)
 ]
 
 # Eğer config içinde FRONTEND_URL tanımlandıysa listeye ekle
