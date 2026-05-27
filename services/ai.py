@@ -72,7 +72,7 @@ _BRAND_MAP = [
     (r'\bFacebook\b',      'Feysbuk'),
     (r'\bInstagram\b',     'İnstagram'),
     (r'\bTikTok\b',        'Tiktok'),
-    (r'\bOpenAI\b',        'Open-Eyi'),
+    (r'\bOpenAI\b',        'Open-Ey-Ay'),
     (r'\bChatGPT\b',       'Çet-Ci-Pi-Ti'),
     (r'\bGPT-(\w+)\b',     r'Ci-Pi-Ti-\1'),
     (r'\bSpaceX\b',        'Speys-İks'),
