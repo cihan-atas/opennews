@@ -52,10 +52,71 @@ export default function RssReaderScreen() {
   const [submitUrl, setSubmitUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const [showSaved, setShowSaved] = useState(false);
+  const [savedArticles, setSavedArticles] = useState([]);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [savedIds, setSavedIds] = useState({}); // { link: savedId }
+
   const pollRef = useRef(null);
   const pollTitleRef = useRef(null);
 
-  useEffect(() => { fetchLists(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+  useEffect(() => {
+    fetchLists();
+    fetchSaved();
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  const fetchSaved = async () => {
+    setLoadingSaved(true);
+    try {
+      const res = await apiFetch('/rss-reader/saved?size=100');
+      if (res.ok) {
+        const data = await res.json();
+        setSavedArticles(data.items);
+        const ids = {};
+        data.items.forEach((a) => { ids[a.link] = a.id; });
+        setSavedIds(ids);
+      }
+    } catch (_) { showToast('Kaydedilenler yüklenemedi.', 'error'); }
+    finally { setLoadingSaved(false); }
+  };
+
+  const toggleSave = async (article) => {
+    const existingId = savedIds[article.link];
+    if (existingId) {
+      try {
+        const res = await apiFetch(`/rss-reader/saved/${existingId}`, { method: 'DELETE' });
+        if (res.ok) {
+          setSavedIds((p) => { const n = { ...p }; delete n[article.link]; return n; });
+          setSavedArticles((p) => p.filter((a) => a.id !== existingId));
+          showToast('Kaydedilenlerden silindi.');
+        }
+      } catch (_) { showToast('İşlem başarısız.', 'error'); }
+    } else {
+      try {
+        const res = await apiFetch('/rss-reader/saved', {
+          method: 'POST',
+          body: JSON.stringify({
+            title: article.title,
+            link: article.link,
+            summary: article.summary || null,
+            feed_title: article.feed_title || null,
+            feed_url: article.feed_url || null,
+            published: article.published || null,
+          }),
+        });
+        if (res.ok) {
+          const saved = await res.json();
+          setSavedIds((p) => ({ ...p, [article.link]: saved.id }));
+          setSavedArticles((p) => [saved, ...p]);
+          showToast('Makale kaydedildi! 📌');
+        } else {
+          const err = await res.json();
+          showToast(err.detail || 'Kaydedilemedi.', 'error');
+        }
+      } catch (_) { showToast('Kaydedilemedi.', 'error'); }
+    }
+  };
 
   const fetchLists = async () => {
     setLoadingLists(true);
@@ -328,11 +389,14 @@ export default function RssReaderScreen() {
       ) : (
         <>
           <View style={styles.toolbar}>
-            <Pressable onPress={() => loadArticles(selectedList.id)} disabled={loadingArticles} style={styles.toolBtn}>
+            <Pressable onPress={() => { setShowSaved(false); loadArticles(selectedList.id); }} disabled={loadingArticles} style={styles.toolBtn}>
               <Text style={{ color: colors.textMuted, fontWeight: '700' }}>{loadingArticles ? '⏳' : '↻'} Yenile</Text>
             </Pressable>
             <Pressable onPress={() => setShowFeedManager(true)} style={[styles.toolBtn, { backgroundColor: colors.primary, borderColor: colors.primary }]}>
               <Text style={{ color: colors.white, fontWeight: '700' }}>+ RSS Yönet</Text>
+            </Pressable>
+            <Pressable onPress={() => { setShowSaved(!showSaved); }} style={[styles.toolBtn, showSaved && { backgroundColor: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)' }]}>
+              <Text style={{ color: showSaved ? colors.primaryLight : colors.textMuted, fontWeight: '700' }}>📌 {savedArticles.length > 0 ? savedArticles.length : ''} Kayıtlar</Text>
             </Pressable>
             <Pressable onPress={() => { setShowCommunity(true); if (communityFeeds.length === 0) fetchCommunity(); }} style={[styles.toolBtn, { borderColor: 'rgba(99,102,241,0.3)' }]}>
               <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>🌐 Topluluk</Text>
@@ -363,7 +427,35 @@ export default function RssReaderScreen() {
             </ScrollView>
           )}
 
-          {loadingArticles ? (
+          {showSaved ? (
+            loadingSaved ? (
+              <ActivityIndicator color={colors.primaryLight} style={{ marginTop: 40 }} />
+            ) : (
+              <FlatList
+                data={savedArticles}
+                keyExtractor={(a) => String(a.id)}
+                renderItem={({ item: a }) => (
+                  <Pressable onPress={() => openArticle(a)} style={styles.article}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <Text style={[styles.feedBadge, { color: feedColor(a.feed_title), backgroundColor: `${feedColor(a.feed_title)}22` }]}>{a.feed_title || 'RSS'}</Text>
+                      <Text style={{ color: 'rgba(99,102,241,0.7)', fontSize: 11, marginLeft: 'auto' }}>📌</Text>
+                    </View>
+                    <Text style={styles.articleTitle}>{a.title}</Text>
+                    {!!a.summary && <Text style={styles.articleSummary} numberOfLines={2}>{stripHtml(a.summary)}</Text>}
+                  </Pressable>
+                )}
+                contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 120 }}
+                ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+                ListEmptyComponent={
+                  <View style={styles.empty}>
+                    <Text style={{ fontSize: 40 }}>📌</Text>
+                    <Text style={{ color: colors.textDim, marginTop: 12 }}>Henüz kaydedilen makale yok.</Text>
+                    <Text style={{ color: colors.textFaint, fontSize: 13, marginTop: 6, textAlign: 'center' }}>Makaleyi açıp "Kaydet" butonuna bas.</Text>
+                  </View>
+                }
+              />
+            )
+          ) : loadingArticles ? (
             <ActivityIndicator color={colors.primaryLight} style={{ marginTop: 40 }} />
           ) : (
             <FlatList
@@ -514,6 +606,14 @@ export default function RssReaderScreen() {
                     <Text style={{ color: colors.textMuted, fontWeight: '700' }}>🔗 Kaynağa Git</Text>
                   </Pressable>
                 )}
+                <Pressable
+                  onPress={() => selectedArticle && toggleSave(selectedArticle)}
+                  style={[styles.modalBtn, styles.outlineBtn, savedIds[selectedArticle?.link] && { borderColor: 'rgba(99,102,241,0.4)', backgroundColor: 'rgba(99,102,241,0.08)' }]}
+                >
+                  <Text style={{ color: savedIds[selectedArticle?.link] ? colors.primaryLight : colors.textMuted, fontWeight: '700' }}>
+                    {savedIds[selectedArticle?.link] ? '📌 Kaydedildi' : '📌 Kaydet'}
+                  </Text>
+                </Pressable>
                 {podcastStatus !== 'ready' && (
                   <Pressable onPress={createPodcast} disabled={podcastStatus === 'loading' || podcastStatus === 'processing'}
                     style={[styles.modalBtn, { backgroundColor: colors.primary }]}>

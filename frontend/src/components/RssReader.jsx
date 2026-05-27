@@ -40,11 +40,16 @@ function RssReader() {
   const [isTranslating, setIsTranslating] = useState(false);
 
   // Community RSS
-  const [leftTab, setLeftTab] = useState('mine'); // 'mine' | 'community'
+  const [leftTab, setLeftTab] = useState('mine'); // 'mine' | 'community' | 'saved'
   const [communityFeeds, setCommunityFeeds] = useState([]);
   const [communityLoading, setCommunityLoading] = useState(false);
   const [submitUrl, setSubmitUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Saved articles
+  const [savedIds, setSavedIds] = useState({}); // { link: savedId }
+  const [savedArticles, setSavedArticles] = useState([]);
+  const [showSaved, setShowSaved] = useState(false);
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   const showToast = (message, type = 'success') => setToast({ show: true, message, type });
@@ -55,7 +60,7 @@ function RssReader() {
     }
   }, [toast.show]);
 
-  useEffect(() => { fetchLists(); }, []);
+  useEffect(() => { fetchLists(); fetchSaved(); }, []);
 
   useEffect(() => {
     if (leftTab === 'community' && communityFeeds.length === 0) fetchCommunity();
@@ -82,6 +87,56 @@ function RssReader() {
     }, 2000);
     return () => clearInterval(interval);
   }, [podcastStatus, podcastPollTitle]);
+
+  const fetchSaved = async () => {
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss-reader/saved?size=100`);
+      if (res.ok) {
+        const data = await res.json();
+        setSavedArticles(data.items);
+        const ids = {};
+        data.items.forEach(a => { ids[a.link] = a.id; });
+        setSavedIds(ids);
+      }
+    } catch (_) {}
+  };
+
+  const toggleSave = async (article) => {
+    const existingId = savedIds[article.link];
+    if (existingId) {
+      try {
+        const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss-reader/saved/${existingId}`, { method: 'DELETE' });
+        if (res.ok) {
+          setSavedIds(p => { const n = { ...p }; delete n[article.link]; return n; });
+          setSavedArticles(p => p.filter(a => a.id !== existingId));
+          showToast('Kaydedilenlerden silindi.');
+        }
+      } catch (_) { showToast('İşlem başarısız.', 'error'); }
+    } else {
+      try {
+        const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss-reader/saved`, {
+          method: 'POST',
+          body: JSON.stringify({
+            title: article.title,
+            link: article.link,
+            summary: article.summary || null,
+            feed_title: article.feed_title || null,
+            feed_url: article.feed_url || null,
+            published: article.published || null,
+          }),
+        });
+        if (res.ok) {
+          const saved = await res.json();
+          setSavedIds(p => ({ ...p, [article.link]: saved.id }));
+          setSavedArticles(p => [saved, ...p]);
+          showToast('Makale kaydedildi! 📌');
+        } else {
+          const err = await res.json();
+          showToast(err.detail || 'Kaydedilemedi.', 'error');
+        }
+      } catch (_) { showToast('Kaydedilemedi.', 'error'); }
+    }
+  };
 
   const fetchLists = async () => {
     setLoadingLists(true);
@@ -446,7 +501,7 @@ function RssReader() {
       <div style={s.listPanel}>
         {/* Tab toggle */}
         <div style={{ display: 'flex', background: 'rgba(2,6,23,0.6)', borderRadius: '12px', padding: '3px', border: '1px solid rgba(255,255,255,0.07)', marginBottom: '1.25rem' }}>
-          {[{ key: 'mine', label: '📡 Listelerim' }, { key: 'community', label: '🌐 Topluluk' }].map(tab => (
+          {[{ key: 'mine', label: '📡 Listelerim' }, { key: 'community', label: '🌐 Topluluk' }, { key: 'saved', label: `📌 Kayıtlar${savedArticles.length > 0 ? ` (${savedArticles.length})` : ''}` }].map(tab => (
             <button
               key={tab.key}
               onClick={() => setLeftTab(tab.key)}
@@ -547,6 +602,35 @@ function RssReader() {
                 </button>
               </form>
             </div>
+          </div>
+        )}
+
+        {leftTab === 'saved' && (
+          <div>
+            {savedArticles.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#475569' }}>
+                <p style={{ fontSize: '2rem', margin: '0 0 8px' }}>📌</p>
+                <p style={{ fontWeight: '700', margin: '0 0 4px' }}>Henüz kaydedilen makale yok.</p>
+                <p style={{ fontSize: '0.85rem', margin: 0 }}>Makale açıkken "📌 Kaydet" butonuna bas.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {savedArticles.map(a => (
+                  <div
+                    key={a.id}
+                    onClick={() => { setSelectedArticle(a); setPodcastStatus(podcastCache[a.title] ? 'ready' : null); setActiveTranslation(null); setTranslationCache({}); }}
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '12px 14px', cursor: 'pointer', transition: '0.2s' }}
+                    onMouseOver={e => e.currentTarget.style.borderColor = 'rgba(99,102,241,0.25)'}
+                    onMouseOut={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
+                  >
+                    {a.feed_title && (
+                      <span style={{ fontSize: '0.65rem', fontWeight: '800', color: feedColor(a.feed_title), background: `${feedColor(a.feed_title)}18`, padding: '2px 7px', borderRadius: '5px', display: 'inline-block', marginBottom: '6px', textTransform: 'uppercase' }}>{a.feed_title}</span>
+                    )}
+                    <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: '700', color: '#e2e8f0', lineHeight: 1.4 }}>{a.title}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -798,6 +882,13 @@ function RssReader() {
               >
                 🔗 Kaynağa Git
               </a>
+
+              <button
+                onClick={() => toggleSave(selectedArticle)}
+                style={{ flex: 1, minWidth: '130px', padding: '13px 18px', borderRadius: '14px', border: savedIds[selectedArticle.link] ? '1px solid rgba(99,102,241,0.4)' : '1px solid rgba(255,255,255,0.09)', background: savedIds[selectedArticle.link] ? 'rgba(99,102,241,0.12)' : 'transparent', color: savedIds[selectedArticle.link] ? '#818cf8' : '#94a3b8', fontWeight: '700', fontSize: '0.88rem', cursor: 'pointer', transition: '0.2s' }}
+              >
+                {savedIds[selectedArticle.link] ? '📌 Kaydedildi' : '📌 Kaydet'}
+              </button>
 
               {podcastStatus !== 'ready' && (
                 <button
