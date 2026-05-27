@@ -1,10 +1,11 @@
 """AI metin üretimi (özet/çeviri) — sağlayıcı-bağımsız.
 
 Sağlayıcılar:
-  - vertex      : Vertex AI Gemini 2.5 Flash (google-genai) — ücretli
+  - groq        : Groq — 14.400 istek/gün ücretsiz, çok hızlı  ← önerilen
+  - openrouter  : OpenRouter ücretsiz modeller (~50 istek/gün)
+  - nvidia      : NVIDIA NIM — 1000 toplam ücretsiz kredi, sonra ücretli
   - openai      : OpenAI Chat Completions — ücretli
-  - openrouter  : OpenRouter ücretsiz modeller (~200 istek/gün, süresiz)
-  - nvidia      : NVIDIA NIM API — 1000 ücretsiz kredi, sonra ücretli
+  - vertex      : Vertex AI Gemini — ücretli
   - mock        : API key gerektirmez, geliştirme için
 
 Sağlayıcı SDK importları lazy'dir; sadece seçili sağlayıcının paketi gerekir.
@@ -17,6 +18,8 @@ _VERTEX_MODEL = "publishers/google/models/gemini-2.5-flash"
 def generate(prompt: str) -> str:
     """Verilen prompt için düz metin yanıtı döner."""
     provider = settings.AI_PROVIDER
+    if provider == "groq":
+        return _groq_generate(prompt)
     if provider == "openai":
         return _openai_generate(prompt)
     if provider == "openrouter":
@@ -35,7 +38,23 @@ def translate(text: str, target_lang: str) -> str:
     return generate(prompt)
 
 
-# ── OpenRouter (ücretsiz, süresiz — önerilen) ────────────────────────────────
+# ── Groq (ücretsiz, 14.400 istek/gün — önerilen) ────────────────────────────
+def _groq_generate(prompt: str) -> str:
+    from openai import OpenAI
+    client = OpenAI(
+        api_key=settings.GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1",
+    )
+    response = client.chat.completions.create(
+        model=settings.GROQ_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+        max_tokens=1024,
+    )
+    return response.choices[0].message.content.strip()
+
+
+# ── OpenRouter (~50 istek/gün ücretsiz) ──────────────────────────────────────
 def _openrouter_generate(prompt: str) -> str:
     from openai import OpenAI
     client = OpenAI(

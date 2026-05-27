@@ -35,13 +35,17 @@ class Settings(BaseSettings):
     OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
     OPENAI_EMBED_MODEL: str = "text-embedding-3-small"
 
-    # OpenRouter — ücretsiz, süresiz (AI_PROVIDER=openrouter için)
-    # Ücretsiz model listesi: https://openrouter.ai/models?q=free
+    # Groq — 14.400 istek/gün ücretsiz (AI_PROVIDER=groq için) ← önerilen
+    # Key: console.groq.com → API Keys → Create API Key
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.1-8b-instant"   # alternatif: llama-3.3-70b-versatile
+
+    # OpenRouter — ~50 istek/gün ücretsiz (AI_PROVIDER=openrouter için)
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_MODEL: str = "meta-llama/llama-3.1-8b-instruct:free"
 
-    # NVIDIA NIM — 1000 ücretsiz kredi (AI_PROVIDER=nvidia için)
-    # Model listesi: https://build.nvidia.com/explore/discover
+    # NVIDIA NIM — 1000 toplam ücretsiz kredi, sonra ücretli (AI_PROVIDER=nvidia için)
+    # Key: build.nvidia.com → Get API Key
     NVIDIA_API_KEY: str = ""
     NVIDIA_MODEL: str = "meta/llama-3.1-8b-instruct"
 
