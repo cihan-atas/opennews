@@ -32,6 +32,15 @@ class RssTranslateRequest(BaseModel):
     lang: str = "en"
 
 
+class SaveArticleRequest(BaseModel):
+    title: str
+    link: str
+    summary: Optional[str] = None
+    feed_title: Optional[str] = None
+    feed_url: Optional[str] = None
+    published: Optional[str] = None
+
+
 def _fetch_feed(url: str, feed_title: str) -> list[dict]:
     """Fetch and parse a single RSS feed, return article dicts."""
     try:
@@ -207,6 +216,90 @@ def create_rss_podcast(body: RssPodcastCreate, db: db_dependency, current_user: 
 
     process_rss_article_tts_task.delay(body.title, body.content, current_user.id, body.source_url)
     return {"status": "processing"}
+
+
+# ── Saved RSS Articles ─────────────────────────────────────────────────────────
+
+@router.post("/saved", status_code=status.HTTP_201_CREATED)
+def save_article(body: SaveArticleRequest, db: db_dependency, current_user: user_dependency):
+    """RSS listesinden bir makaleyi kaydeder. Aynı link zaten kayıtlıysa 409 döner."""
+    existing = db.query(models.SavedRssArticle).filter(
+        models.SavedRssArticle.user_id == current_user.id,
+        models.SavedRssArticle.link == body.link,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Bu makale zaten kaydedilmiş.")
+
+    article = models.SavedRssArticle(
+        user_id=current_user.id,
+        title=body.title,
+        link=body.link,
+        summary=body.summary,
+        feed_title=body.feed_title,
+        feed_url=body.feed_url,
+        published=body.published,
+    )
+    db.add(article)
+    db.commit()
+    db.refresh(article)
+    return {
+        "id": article.id,
+        "title": article.title,
+        "link": article.link,
+        "summary": article.summary,
+        "feed_title": article.feed_title,
+        "feed_url": article.feed_url,
+        "published": article.published,
+        "saved_at": article.saved_at,
+    }
+
+
+@router.get("/saved")
+def get_saved_articles(
+    db: db_dependency,
+    current_user: user_dependency,
+    page: int = 1,
+    size: int = 20,
+):
+    """Kullanıcının kaydettiği RSS makalelerini sayfalı olarak döner."""
+    offset = (page - 1) * size
+    query = db.query(models.SavedRssArticle).filter(
+        models.SavedRssArticle.user_id == current_user.id
+    )
+    total_count = query.count()
+    items = query.order_by(models.SavedRssArticle.saved_at.desc()).offset(offset).limit(size).all()
+    return {
+        "total_count": total_count,
+        "page": page,
+        "size": size,
+        "items": [
+            {
+                "id": a.id,
+                "title": a.title,
+                "link": a.link,
+                "summary": a.summary,
+                "feed_title": a.feed_title,
+                "feed_url": a.feed_url,
+                "published": a.published,
+                "saved_at": a.saved_at,
+            }
+            for a in items
+        ],
+    }
+
+
+@router.delete("/saved/{article_id}", status_code=status.HTTP_200_OK)
+def delete_saved_article(article_id: int, db: db_dependency, current_user: user_dependency):
+    """Kaydedilen RSS makalesini siler."""
+    article = db.query(models.SavedRssArticle).filter(
+        models.SavedRssArticle.id == article_id,
+        models.SavedRssArticle.user_id == current_user.id,
+    ).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Kayıt bulunamadı.")
+    db.delete(article)
+    db.commit()
+    return {"message": "Makale kaydından silindi."}
 
 
 @router.get("/podcast/check")

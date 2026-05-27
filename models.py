@@ -174,3 +174,19 @@ class PushToken(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User")
+
+
+class SavedRssArticle(Base):
+    __tablename__ = "saved_rss_articles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String, nullable=False)
+    link = Column(String, nullable=False)
+    summary = Column(Text, nullable=True)
+    feed_title = Column(String, nullable=True)
+    feed_url = Column(String, nullable=True)
+    published = Column(String, nullable=True)
+    saved_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
