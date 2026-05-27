@@ -23,26 +23,39 @@ class Settings(BaseSettings):
     GCP_LOCATION: str = "europe-west3"
     FRONTEND_URL: str = "http://localhost:5173"  # Localde varsayılan değer, bulutta ezilecek.
 
-    # --- Sağlayıcı Seçimi (Faz 2: GCP bağımlılığını azaltma) ---
-    # Varsayılanlar GCP'dir → mevcut davranış birebir korunur.
-    # .env'de bu değerleri değiştirerek kod değişmeden non-GCP sağlayıcıya geçilir.
-    AI_PROVIDER: str = "vertex"          # vertex | openai
-    EMBEDDING_PROVIDER: str = "vertex"   # vertex | openai
+    # --- Sağlayıcı Seçimi ---
+    # vertex/google = GCP (ücretli)  |  openrouter/local = ücretsiz önerilen stack
+    AI_PROVIDER: str = "vertex"          # vertex | openai | openrouter | nvidia | mock
+    EMBEDDING_PROVIDER: str = "vertex"   # vertex | openai | local | mock
     TTS_PROVIDER: str = "google"         # google | edge
-    STORAGE_PROVIDER: str = "gcs"        # gcs | s3
+    STORAGE_PROVIDER: str = "gcs"        # gcs | s3 | local
 
     # OpenAI (AI_PROVIDER/EMBEDDING_PROVIDER=openai için)
     OPENAI_API_KEY: str = ""
     OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
-    OPENAI_EMBED_MODEL: str = "text-embedding-3-small"  # dimensions=768 ile mevcut Vector(768) şemasına uyar
+    OPENAI_EMBED_MODEL: str = "text-embedding-3-small"
+
+    # OpenRouter — ücretsiz, süresiz (AI_PROVIDER=openrouter için)
+    # Ücretsiz model listesi: https://openrouter.ai/models?q=free
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_MODEL: str = "meta-llama/llama-3.1-8b-instruct:free"
+
+    # NVIDIA NIM — 1000 ücretsiz kredi (AI_PROVIDER=nvidia için)
+    # Model listesi: https://build.nvidia.com/explore/discover
+    NVIDIA_API_KEY: str = ""
+    NVIDIA_MODEL: str = "meta/llama-3.1-8b-instruct"
+
+    # Yerel embedding (EMBEDDING_PROVIDER=local için — ücretsiz, Türkçe dahil 50+ dil)
+    # paraphrase-multilingual-mpnet-base-v2 → 768-dim, DB migration gerektirmez
+    LOCAL_EMBED_MODEL: str = "paraphrase-multilingual-mpnet-base-v2"
 
     # S3-uyumlu depolama (STORAGE_PROVIDER=s3 için — Cloudflare R2 / MinIO / AWS)
-    S3_ENDPOINT_URL: str = ""            # R2: https://<accountid>.r2.cloudflarestorage.com
+    S3_ENDPOINT_URL: str = ""
     S3_REGION: str = "auto"
     S3_BUCKET_NAME: str = ""
     S3_ACCESS_KEY_ID: str = ""
     S3_SECRET_ACCESS_KEY: str = ""
-    S3_PUBLIC_BASE_URL: str = ""         # Public bucket/CDN tabanı (ör. https://cdn.site.com). Boşsa imzalı URL üretilir.
+    S3_PUBLIC_BASE_URL: str = ""
 
     # Edge TTS (TTS_PROVIDER=edge için)
     EDGE_TTS_VOICE: str = "tr-TR-EmelNeural"

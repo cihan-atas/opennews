@@ -35,7 +35,6 @@ starlette==0.44.0
 typing-extensions==4.13.2
 uvicorn==0.33.0
 zipp==3.20.2
-google-cloud-secret-manager==2.21.0
 google-auth==2.35.0
 google-cloud-storage==2.14.0
 celery==5.3.6
@@ -46,7 +45,8 @@ pgvector==0.3.6
 feedparser==6.0.11
 beautifulsoup4==4.12.3
 requests==2.32.3
-# --- Faz 2: non-GCP sağlayıcılar (opsiyonel; sadece ilgili provider seçilince gerekir) ---
-openai==1.59.6
-edge-tts==7.0.0
-boto3==1.35.99
+# --- Ücretsiz / GCP-bağımsız sağlayıcılar ---
+openai==1.59.6          # OpenRouter ve NVIDIA NIM de bu SDK'yı kullanır (base_url override)
+edge-tts==7.0.0         # TTS_PROVIDER=edge — ücretsiz Microsoft CDN sesleri
+boto3==1.35.99          # STORAGE_PROVIDER=s3 (Cloudflare R2 / MinIO)
+sentence-transformers==3.4.1  # EMBEDDING_PROVIDER=local — ücretsiz, Türkçe dahil
