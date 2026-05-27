@@ -35,10 +35,18 @@ class Settings(BaseSettings):
     OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
     OPENAI_EMBED_MODEL: str = "text-embedding-3-small"
 
-    # Groq — 14.400 istek/gün ücretsiz (AI_PROVIDER=groq için) ← önerilen
+    # Groq — ücretsiz (AI_PROVIDER=groq için) ← önerilen
     # Key: console.groq.com → API Keys → Create API Key
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.1-8b-instant"   # alternatif: llama-3.3-70b-versatile
+    # Bulk model: haber özeti, yüksek hacim (14.4K istek/gün)
+    GROQ_MODEL: str = "llama-3.1-8b-instant"
+    # Kalite model: podcast script, çeviri, daha az ama önemli işler (1K istek/gün)
+    # meta-llama/llama-4-scout-17b-16e-instruct → en yeni Llama 4
+    # qwen/qwen3-32b                            → güçlü Türkçe, 60 RPM
+    GROQ_QUALITY_MODEL: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    # STT: konuşmadan metne (podcast transkripti)
+    STT_PROVIDER: str = "groq"              # groq (whisper)
+    GROQ_STT_MODEL: str = "whisper-large-v3-turbo"  # hız/doğruluk dengesi
 
     # OpenRouter — ~50 istek/gün ücretsiz (AI_PROVIDER=openrouter için)
     OPENROUTER_API_KEY: str = ""
