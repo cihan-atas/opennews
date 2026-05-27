@@ -1,0 +1,52 @@
+/* index.css */
+
+/* ── Theme variables ─────────────────────────────────────── */
+:root, [data-theme="dark"] {
+  --bg:           #020617;
+  --surface:      rgba(15, 23, 42, 0.95);
+  --surface-soft: rgba(15, 23, 42, 0.5);
+  --border:       rgba(255, 255, 255, 0.06);
+  --text:         #f1f5f9;
+  --text-muted:   #94a3b8;
+  --text-dim:     #475569;
+}
+
+[data-theme="light"] {
+  --bg:           #f1f5f9;
+  --surface:      rgba(255, 255, 255, 0.95);
+  --surface-soft: rgba(255, 255, 255, 0.7);
+  --border:       rgba(0, 0, 0, 0.08);
+  --text:         #0f172a;
+  --text-muted:   #334155;
+  --text-dim:     #64748b;
+}
+
+/* ── Global overrides using variables ───────────────────── */
+[data-theme="light"] body {
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+[data-theme="light"] #root > div {
+  background-color: var(--bg) !important;
+}
+
+/* ── Podcast Player animation ───────────────────────────── */
+@keyframes slideUp {
+  from {
+    transform: translate(-50%, 50px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+/* Sayfa genelinde scrollbar'ın (kaydırma çubuğu) tasarımı bozmaması için temel ayar */
+body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden; /* Yanlara taşmayı her ihtimale karşı globalde de engeller */
+  background-color: var(--bg, #020617);
+}

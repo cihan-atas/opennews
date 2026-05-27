@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing_extensions import List
+from sqlalchemy import func, desc
+from datetime import datetime, timedelta, timezone
 import models, schemas
 from dependencies import db_dependency, user_dependency
 
@@ -62,6 +64,46 @@ def delete_user(current_user: user_dependency, db: db_dependency):
     db.delete(current_user)
     db.commit()
     return None # 204 No Content olduğu için bir şey dönmemize gerek yok
+
+@router.get("/stats")
+def get_user_stats(current_user: user_dependency, db: db_dependency):
+    """Kullanıcının okuma ve dinleme istatistiklerini döner."""
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+
+    total_reads = db.query(func.sum(models.UserClick.click_count)).filter(
+        models.UserClick.user_id == current_user.id
+    ).scalar() or 0
+
+    week_reads = db.query(func.sum(models.UserClick.click_count)).filter(
+        models.UserClick.user_id == current_user.id,
+        models.UserClick.last_click_at >= week_ago,
+    ).scalar() or 0
+
+    fav = (
+        db.query(models.NewsCategory.name, func.sum(models.UserClick.click_count).label("total"))
+        .join(models.UserClick, models.UserClick.category_id == models.NewsCategory.id)
+        .filter(models.UserClick.user_id == current_user.id)
+        .group_by(models.NewsCategory.name)
+        .order_by(desc("total"))
+        .first()
+    )
+
+    podcasts_count = db.query(func.count(models.Podcast.id)).filter(
+        models.Podcast.user_id == current_user.id
+    ).scalar() or 0
+
+    bookmarks_count = db.query(func.count(models.UserBookmark.id)).filter(
+        models.UserBookmark.user_id == current_user.id
+    ).scalar() or 0
+
+    return {
+        "articles_read": int(total_reads),
+        "week_reads": int(week_reads),
+        "favorite_category": fav[0] if fav else None,
+        "podcasts_count": int(podcasts_count),
+        "bookmarks_count": int(bookmarks_count),
+    }
+
 
 @router.post("/push-token", status_code=status.HTTP_204_NO_CONTENT)
 def register_push_token(

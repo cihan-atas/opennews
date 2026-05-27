@@ -3,13 +3,16 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Notifications from 'expo-notifications';
+import { useNavigationContainerRef } from '@react-navigation/native';
 
 import { AuthProvider } from './src/contexts/AuthContext';
 import { PlayerProvider } from './src/contexts/PlayerContext';
+import { ThemeProvider } from './src/contexts/ThemeContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import MiniPlayer from './src/components/MiniPlayer';
 
 export default function App() {
+  const navigationRef = useNavigationContainerRef();
   const notificationListener = useRef();
   const responseListener = useRef();
 
@@ -22,10 +25,8 @@ export default function App() {
     // Bildirime tıklanınca (arka plan / kapalı dahil)
     responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data;
-      if (data?.type === 'podcast_ready') {
-        // Podcast sekmesine yönlendirme RootNavigator'dan yapılabilir;
-        // şimdilik sadece logluyoruz — navigasyon entegrasyonu ileride eklenebilir.
-        console.log('[Push] Podcast bildirimine tıklandı.');
+      if (data?.type === 'podcast_ready' && navigationRef.isReady()) {
+        navigationRef.navigate('Main', { screen: 'Podcasts' });
       }
     });
 
@@ -38,13 +39,15 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <AuthProvider>
-          <PlayerProvider>
-            <StatusBar style="light" />
-            <RootNavigator />
-            <MiniPlayer />
-          </PlayerProvider>
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <PlayerProvider>
+              <StatusBar style="auto" />
+              <RootNavigator navigationRef={navigationRef} />
+              <MiniPlayer />
+            </PlayerProvider>
+          </AuthProvider>
+        </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

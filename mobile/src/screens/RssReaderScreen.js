@@ -43,6 +43,12 @@ export default function RssReaderScreen() {
   const [translationCache, setTranslationCache] = useState({});
   const [translating, setTranslating] = useState(false);
 
+  const [showCommunity, setShowCommunity] = useState(false);
+  const [communityFeeds, setCommunityFeeds] = useState([]);
+  const [communityLoading, setCommunityLoading] = useState(false);
+  const [submitUrl, setSubmitUrl] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
   const pollRef = useRef(null);
   const pollTitleRef = useRef(null);
 
@@ -138,6 +144,45 @@ export default function RssReaderScreen() {
         loadArticles(selectedList.id);
       }
     } catch (_) { showToast('Kaldırılamadı.', 'error'); }
+  };
+
+  const fetchCommunity = async () => {
+    setCommunityLoading(true);
+    try {
+      const res = await apiFetch('/rss/approved');
+      if (res.ok) setCommunityFeeds(await res.json());
+    } catch (_) { showToast('Yüklenemedi.', 'error'); }
+    finally { setCommunityLoading(false); }
+  };
+
+  const handleSubmitSource = async () => {
+    if (!submitUrl.trim()) return;
+    setSubmitting(true);
+    try {
+      const res = await apiFetch('/rss/submit', { method: 'POST', body: JSON.stringify({ url: submitUrl.trim() }) });
+      if (res.ok) { showToast('Kaynağın incelemeye alındı!'); setSubmitUrl(''); }
+      else showToast((await res.json()).detail || 'Gönderilemedi.', 'error');
+    } catch (_) { showToast('Bağlantı hatası.', 'error'); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleAddFromCommunity = async (url) => {
+    if (!selectedList) { showToast('Önce bir liste seç!', 'error'); return; }
+    try {
+      const res = await apiFetch(`/rss-reader/lists/${selectedList.id}/feeds`, {
+        method: 'POST', body: JSON.stringify({ url }),
+      });
+      if (res.ok) {
+        const feed = await res.json();
+        const updated = { ...selectedList, feeds: [...(selectedList.feeds || []), feed], feed_count: (selectedList.feed_count || 0) + 1 };
+        setSelectedList(updated);
+        setLists((p) => p.map((l) => (l.id === selectedList.id ? updated : l)));
+        showToast('Kaynak listenize eklendi!');
+        loadArticles(selectedList.id);
+      } else {
+        showToast((await res.json()).detail || 'Eklenemedi.', 'error');
+      }
+    } catch (_) { showToast('Bağlantı hatası.', 'error'); }
   };
 
   const openArticle = (article) => {
@@ -286,6 +331,9 @@ export default function RssReaderScreen() {
             <Pressable onPress={() => setShowFeedManager(true)} style={[styles.toolBtn, { backgroundColor: colors.primary, borderColor: colors.primary }]}>
               <Text style={{ color: colors.white, fontWeight: '700' }}>+ RSS Yönet</Text>
             </Pressable>
+            <Pressable onPress={() => { setShowCommunity(true); if (communityFeeds.length === 0) fetchCommunity(); }} style={[styles.toolBtn, { borderColor: 'rgba(99,102,241,0.3)' }]}>
+              <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>🌐 Topluluk</Text>
+            </Pressable>
           </View>
 
           {articles.length > 0 && (
@@ -369,6 +417,57 @@ export default function RssReaderScreen() {
                   </Pressable>
                 </View>
               ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Topluluk kaynakları modalı */}
+      <Modal visible={showCommunity} transparent animationType="slide" onRequestClose={() => setShowCommunity(false)}>
+        <View style={styles.sheetOverlay}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: '88%' }]}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>🌐 Topluluk Kaynakları</Text>
+              <Pressable onPress={() => setShowCommunity(false)} hitSlop={12}><Text style={{ color: colors.textDim, fontSize: 20 }}>✕</Text></Pressable>
+            </View>
+            <ScrollView>
+              {communityLoading ? (
+                <ActivityIndicator color={colors.primaryLight} style={{ marginTop: 24 }} />
+              ) : communityFeeds.length === 0 ? (
+                <Text style={{ color: colors.textFaint, textAlign: 'center', marginTop: 24 }}>Henüz onaylı kaynak yok.</Text>
+              ) : (
+                communityFeeds.map((feed) => (
+                  <View key={feed.id} style={styles.feedRow}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: feedColor(feed.url), flexShrink: 0 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.white, fontWeight: '600', fontSize: 12 }} numberOfLines={1}>{feed.url}</Text>
+                      {!!feed.category && <Text style={{ color: colors.primaryLight, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{feed.category}</Text>}
+                    </View>
+                    <Pressable onPress={() => handleAddFromCommunity(feed.url)} style={[styles.removeFeedBtn, { borderColor: 'rgba(99,102,241,0.3)' }]}>
+                      <Text style={{ color: colors.primaryLight, fontSize: 12, fontWeight: '700' }}>+ Ekle</Text>
+                    </Pressable>
+                  </View>
+                ))
+              )}
+
+              <View style={{ borderTopWidth: 1, borderTopColor: colors.borderSoft, marginTop: 16, paddingTop: 16 }}>
+                <Text style={{ color: colors.textFaint, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Kaynak Öner</Text>
+                <View style={styles.createRow}>
+                  <TextInput
+                    style={styles.createInput}
+                    placeholder="https://example.com/feed.xml"
+                    placeholderTextColor={colors.textFaint}
+                    autoCapitalize="none"
+                    keyboardType="url"
+                    value={submitUrl}
+                    onChangeText={setSubmitUrl}
+                  />
+                  <Pressable onPress={handleSubmitSource} disabled={submitting || !submitUrl.trim()} style={[styles.addBtn, { opacity: !submitUrl.trim() ? 0.4 : 1 }]}>
+                    <Text style={styles.addBtnText}>{submitting ? '…' : '📨'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+              <View style={{ height: 20 }} />
             </ScrollView>
           </View>
         </View>

@@ -15,7 +15,7 @@ const navTheme = {
   colors: { ...DarkTheme.colors, background: colors.bg, card: colors.surface, primary: colors.primary },
 };
 
-export default function RootNavigator() {
+export default function RootNavigator({ navigationRef }) {
   const { isAuthenticated, bootstrapping, user } = useAuth();
 
   if (bootstrapping) {
@@ -30,7 +30,7 @@ export default function RootNavigator() {
   const needsOnboarding = isAuthenticated && user && (user.interests?.length ?? 0) < 2;
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer ref={navigationRef} theme={navTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
         {!isAuthenticated ? (
           <Stack.Screen name="Auth" component={AuthScreen} />

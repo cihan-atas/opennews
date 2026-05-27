@@ -3,6 +3,8 @@ import {
   View, Text, Pressable, FlatList, Modal, StyleSheet, ActivityIndicator, Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { apiFetch } from '../api/client';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useToast, Toast } from '../components/Toast';
@@ -20,6 +22,7 @@ export default function PodcastScreen() {
   const [totalCount, setTotalCount] = useState(0);
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [downloading, setDownloading] = useState(null); // podcast id
 
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
@@ -73,6 +76,26 @@ export default function PodcastScreen() {
     }
   };
 
+  const handleDownload = useCallback(async (pod) => {
+    if (downloading) return;
+    setDownloading(pod.id);
+    try {
+      const safeName = pod.title.replace(/[^a-z0-9]/gi, '_').slice(0, 60) + '.mp3';
+      const dest = FileSystem.cacheDirectory + safeName;
+      const { uri } = await FileSystem.downloadAsync(pod.audio_url, dest);
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, { mimeType: 'audio/mpeg', dialogTitle: pod.title });
+      } else {
+        showToast('Paylaşım bu cihazda desteklenmiyor.', 'error');
+      }
+    } catch (e) {
+      showToast('İndirme başarısız.', 'error');
+    } finally {
+      setDownloading(null);
+    }
+  }, [downloading, showToast]);
+
   const renderItem = ({ item: pod }) => {
     const isCurrent = track?.src === pod.audio_url;
     return (
@@ -99,6 +122,15 @@ export default function PodcastScreen() {
               <Text style={{ color: colors.textMuted, fontWeight: '600' }}>🔗 Kaynak</Text>
             </Pressable>
           )}
+          <Pressable
+            onPress={() => handleDownload(pod)}
+            disabled={downloading === pod.id}
+            style={styles.dlBtn}
+          >
+            <Text style={{ color: downloading === pod.id ? colors.textDim : colors.success, fontWeight: '600' }}>
+              {downloading === pod.id ? '⏳' : '⬇'}
+            </Text>
+          </Pressable>
           <Pressable onPress={() => setToDelete(pod.id)} style={styles.trashBtn}>
             <Text style={{ fontSize: 16 }}>🗑️</Text>
           </Pressable>
@@ -193,6 +225,7 @@ const styles = StyleSheet.create({
     borderColor: colors.borderSoft,
     backgroundColor: 'rgba(30,41,59,0.6)',
   },
+  dlBtn: { padding: 8, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: 'rgba(16,185,129,0.06)' },
   trashBtn: { marginLeft: 'auto', padding: 8 },
   pager: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, paddingVertical: 24 },
   pageBtn: { backgroundColor: 'rgba(30,41,59,0.5)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: radius.sm },

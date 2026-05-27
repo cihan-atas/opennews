@@ -1,5 +1,4 @@
-// NewsFlow renk paleti — web frontend ile birebir uyumlu (#020617 / #6366f1).
-export const colors = {
+export const darkColors = {
   bg: '#020617',
   surface: '#0f172a',
   surfaceAlpha: 'rgba(15, 23, 42, 0.6)',
@@ -21,6 +20,32 @@ export const colors = {
   warning: '#f59e0b',
   white: '#ffffff',
 };
+
+export const lightColors = {
+  bg: '#f1f5f9',
+  surface: '#ffffff',
+  surfaceAlpha: 'rgba(255, 255, 255, 0.8)',
+  card: 'rgba(255, 255, 255, 0.98)',
+  border: 'rgba(0, 0, 0, 0.1)',
+  borderSoft: 'rgba(0, 0, 0, 0.06)',
+
+  primary: '#6366f1',
+  primaryLight: '#4f46e5',
+  primarySoft: 'rgba(99, 102, 241, 0.12)',
+
+  text: '#0f172a',
+  textMuted: '#334155',
+  textDim: '#64748b',
+  textFaint: '#94a3b8',
+
+  success: '#059669',
+  error: '#dc2626',
+  warning: '#d97706',
+  white: '#ffffff',
+};
+
+// Default export for backwards compatibility — screens that don't use ThemeContext yet
+export const colors = darkColors;
 
 export const radius = {
   sm: 12,
