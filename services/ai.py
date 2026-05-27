@@ -33,8 +33,8 @@ def generate(prompt: str) -> str:
 
 def translate(text: str, target_lang: str) -> str:
     """text'i hedef dile çevirir. target_lang: 'en' | 'tr'."""
-    target = "İngilizce" if target_lang == "en" else "Türkçe"
-    prompt = f"Aşağıdaki metni {target} diline çevir. Yalnızca çeviriyi döndür:\n\n{text}"
+    lang_name = "English" if target_lang == "en" else "Turkish"
+    prompt = f"Translate the following text to {lang_name}. Return only the translation, nothing else:\n\n{text}"
     return generate(prompt)
 
 
