@@ -109,6 +109,7 @@ class PodcastOut(PodcastBase):
     user_id: int
     news_id: Optional[int] = None
     source_url: Optional[str] = None
+    transcript: Optional[str] = None
     created_at: datetime
 
     class Config:

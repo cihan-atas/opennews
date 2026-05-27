@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import RedirectResponse
 from typing_extensions import List, Annotated
-import schemas, models
+import schemas, models, tempfile, os
 from dependencies import db_dependency, user_dependency
 from utils import upload_to_gcs, get_signed_audio_url, delete_from_gcs
 from worker import process_news_and_tts_task
+import services.stt as stt_service
 
 router = APIRouter(
     prefix="/podcast",    # Tüm yolların başına otomatik /podcast ekler
@@ -114,6 +115,63 @@ def create_podcast(podcast: schemas.PodcastCreate, db: db_dependency, current_us
     db.commit()
     db.refresh(new_podcast)
     return new_podcast
+
+@router.get("/{podcast_id}/transcript")
+def get_podcast_transcript(podcast_id: int, db: db_dependency, current_user: user_dependency):
+    """Podcast ses dosyasını Groq Whisper ile metne çevirir ve döner.
+    İlk çağrıda transkript üretilip DB'ye kaydedilir; sonraki çağrılarda cache'den döner.
+    """
+    podcast = db.query(models.Podcast).filter(
+        models.Podcast.id == podcast_id,
+        models.Podcast.user_id == current_user.id,
+    ).first()
+    if not podcast:
+        raise HTTPException(status_code=404, detail="Podcast bulunamadı.")
+
+    if podcast.transcript:
+        return {"transcript": podcast.transcript, "cached": True}
+
+    # Ses dosyasını geçici dizine indir
+    import urllib.request
+    audio_url = get_signed_audio_url(podcast.audio_url)
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        urllib.request.urlretrieve(audio_url, tmp_path)
+        transcript = stt_service.transcribe(tmp_path, language="tr")
+    finally:
+        os.unlink(tmp_path)
+
+    # DB'ye kaydet
+    podcast.transcript = transcript
+    db.commit()
+
+    return {"transcript": transcript, "cached": False}
+
+
+@router.post("/transcribe", summary="Ses dosyası yükle → metin")
+async def transcribe_audio(
+    current_user: user_dependency,
+    file: UploadFile = File(..., description="mp3/wav/m4a/ogg — maks 25 MB"),
+):
+    """Yüklenen ses dosyasını Groq Whisper ile metne çevirir.
+    Podcast kütüphanesiyle ilişkili olmayan tek seferlik transkripsiyon için kullanılır.
+    """
+    allowed = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm"}
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail=f"Desteklenmeyen format: {ext}")
+
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+    try:
+        transcript = stt_service.transcribe(tmp_path, language="tr")
+    finally:
+        os.unlink(tmp_path)
+
+    return {"transcript": transcript, "filename": file.filename}
+
 
 @router.delete("/{podcast_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_podcast(podcast_id: int, db: db_dependency, current_user: user_dependency):

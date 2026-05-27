@@ -68,6 +68,7 @@ class Podcast(Base):
     duration = Column(Integer, nullable=False) # Saniye cinsinden
     news_id = Column(Integer, ForeignKey("news.id"), nullable=True)
     source_url = Column(String, nullable=True)
+    transcript = Column(String, nullable=True)  # Groq Whisper STT çıktısı, ilk istekte üretilir
 
     owner = relationship("User", back_populates="podcasts")
 
