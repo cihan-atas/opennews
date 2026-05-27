@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors } from '../theme';
+import { useTheme } from '../contexts/ThemeContext';
 
 // Web'deki toast deseninin RN karşılığı (2.2 sn sonra otomatik kapanır).
 export function useToast() {
@@ -23,6 +23,7 @@ export function useToast() {
 
 export function Toast({ toast }) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   if (!toast.show) return null;
   const isSuccess = toast.type === 'success';
   return (

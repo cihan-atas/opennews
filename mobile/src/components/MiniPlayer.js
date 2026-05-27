@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
 import { usePlayer } from '../contexts/PlayerContext';
-import { colors, radius } from '../theme';
+import { radius } from '../theme';
+import { useTheme } from '../contexts/ThemeContext';
 
 const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
 
@@ -24,6 +25,8 @@ function ActivePlayer({ track, onClose }) {
   const player = useAudioPlayer(track.src);
   const status = useAudioPlayerStatus(player);
   const [speedIdx, setSpeedIdx] = useState(0);
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   useEffect(() => {
     if (track.autoPlay) {
@@ -90,7 +93,7 @@ export default function MiniPlayer() {
   return <ActivePlayer key={track.src} track={track} onClose={clearTrack} />;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   wrap: {
     position: 'absolute', left: 12, right: 12,
     backgroundColor: 'rgba(8,12,24,0.98)',

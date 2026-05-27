@@ -1,6 +1,6 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../theme';
+import { useTheme } from '../contexts/ThemeContext';
 
 import HomeScreen from '../screens/HomeScreen';
 import PodcastScreen from '../screens/PodcastScreen';
@@ -19,6 +19,7 @@ const ICONS = {
 };
 
 export default function MainTabs() {
+  const { colors } = useTheme();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({

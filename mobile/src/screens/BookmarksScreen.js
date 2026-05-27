@@ -1,14 +1,17 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, Pressable, FlatList, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiFetch } from '../api/client';
 import { useToast, Toast } from '../components/Toast';
 import NewsDetailModal from '../components/NewsDetailModal';
-import { colors, radius } from '../theme';
+import { radius } from '../theme';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function BookmarksScreen() {
   const insets = useSafeAreaInsets();
   const { toast, showToast } = useToast();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [bookmarks, setBookmarks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -106,7 +109,7 @@ export default function BookmarksScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: 16, paddingBottom: 8 },
   h1: { color: colors.white, fontSize: 26, fontWeight: '900' },

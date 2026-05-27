@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.staticfiles import StaticFiles
+import os
 from routers import auth, news, podcast, users, categories, bookmarks, feed, rss, rss_reader  # Routers klasöründen çekiyoruz
 from database import engine, SessionLocal
 import models
@@ -123,3 +125,8 @@ app.include_router(rss_reader.router)
 @app.get("/")
 def root():
     return {"status": "active", "message": "System is ready!"}
+
+# Yerel geliştirme: audio dosyalarını statik olarak sun
+_audio_dir = os.path.join(os.path.dirname(__file__), "audio_files")
+os.makedirs(_audio_dir, exist_ok=True)
+app.mount("/audio", StaticFiles(directory=_audio_dir), name="audio")

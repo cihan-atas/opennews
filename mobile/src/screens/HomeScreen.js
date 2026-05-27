@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View, Text, TextInput, Pressable, FlatList, ScrollView, StyleSheet,
   ActivityIndicator, RefreshControl,
@@ -7,13 +7,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiFetch } from '../api/client';
 import { useToast, Toast } from '../components/Toast';
 import NewsDetailModal from '../components/NewsDetailModal';
-import { colors, radius } from '../theme';
+import { radius } from '../theme';
+import { useTheme } from '../contexts/ThemeContext';
 
 const PAGE_SIZE = 10;
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { toast, showToast } = useToast();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [newsList, setNewsList] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -252,7 +255,7 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   h1: { color: colors.white, fontSize: 30, fontWeight: '900', paddingHorizontal: 0, marginTop: 8 },
   sub: { color: colors.textMuted, fontSize: 15, marginTop: 6, marginBottom: 18 },

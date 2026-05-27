@@ -1,14 +1,17 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   View, Text, TextInput, Pressable, KeyboardAvoidingView, Platform, ScrollView, StyleSheet,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast, Toast } from '../components/Toast';
-import { colors, radius } from '../theme';
+import { radius } from '../theme';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function AuthScreen() {
   const { login, register } = useAuth();
   const { toast, showToast } = useToast();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
@@ -106,7 +109,7 @@ export default function AuthScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   scroll: { flexGrow: 1, justifyContent: 'center', padding: 20 },
   card: {

@@ -12,22 +12,54 @@ import os
 from config import settings
 
 
+LOCAL_AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "audio_files")
+
+
 def upload(local_path: str, destination_blob_name: str) -> str:
     if settings.STORAGE_PROVIDER == "s3":
         return _s3_upload(local_path, destination_blob_name)
+    if settings.STORAGE_PROVIDER == "local":
+        return _local_upload(local_path, destination_blob_name)
     return _gcs_upload(local_path, destination_blob_name)
 
 
 def signed_url(stored_url: str, expiration_minutes: int = 60) -> str:
     if settings.STORAGE_PROVIDER == "s3":
         return _s3_signed_url(stored_url, expiration_minutes)
+    if settings.STORAGE_PROVIDER == "local":
+        return stored_url  # local URL doğrudan kullanılır
     return _gcs_signed_url(stored_url, expiration_minutes)
 
 
 def delete(stored_url: str) -> None:
     if settings.STORAGE_PROVIDER == "s3":
         return _s3_delete(stored_url)
+    if settings.STORAGE_PROVIDER == "local":
+        return _local_delete(stored_url)
     return _gcs_delete(stored_url)
+
+
+# ── Local (geliştirme ortamı) ─────────────────────────────────────────────────
+def _local_upload(local_path: str, blob_name: str) -> str:
+    import shutil
+    dest_dir = os.path.join(LOCAL_AUDIO_DIR, os.path.dirname(blob_name))
+    os.makedirs(dest_dir, exist_ok=True)
+    dest_path = os.path.join(LOCAL_AUDIO_DIR, blob_name)
+    shutil.copy2(local_path, dest_path)
+    api_base = os.environ.get("VITE_API_URL", "http://localhost:8899").rstrip("/")
+    return f"{api_base}/audio/{blob_name}"
+
+
+def _local_delete(stored_url: str) -> None:
+    # URL'den dosya yolunu çıkar
+    for base in [os.environ.get("VITE_API_URL", "http://localhost:8899").rstrip("/") + "/audio/"]:
+        if stored_url.startswith(base):
+            rel = stored_url[len(base):]
+            path = os.path.join(LOCAL_AUDIO_DIR, rel)
+            if os.path.exists(path):
+                os.remove(path)
+                print(f"[Storage:Local] Silindi: {path}")
+            return
 
 
 # ── GCS ──────────────────────────────────────────────────────────────────────

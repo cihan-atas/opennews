@@ -3,20 +3,21 @@ import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { useAuth } from '../contexts/AuthContext';
-import { colors } from '../theme';
+import { useTheme } from '../contexts/ThemeContext';
 import AuthScreen from '../screens/AuthScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import MainTabs from './MainTabs';
 
 const Stack = createNativeStackNavigator();
 
-const navTheme = {
-  ...DarkTheme,
-  colors: { ...DarkTheme.colors, background: colors.bg, card: colors.surface, primary: colors.primary },
-};
-
 export default function RootNavigator({ navigationRef }) {
   const { isAuthenticated, bootstrapping, user } = useAuth();
+  const { colors } = useTheme();
+
+  const navTheme = {
+    ...DarkTheme,
+    colors: { ...DarkTheme.colors, background: colors.bg, card: colors.surface, primary: colors.primary },
+  };
 
   if (bootstrapping) {
     return (

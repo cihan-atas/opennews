@@ -13,7 +13,18 @@ _DIM = 768
 def embed(text: str, task_type: str = "retrieval_document") -> list[float]:
     if settings.EMBEDDING_PROVIDER == "openai":
         return _openai_embed(text)
+    if settings.EMBEDDING_PROVIDER == "mock":
+        return _mock_embed(text)
     return _vertex_embed(text)
+
+
+def _mock_embed(text: str) -> list[float]:
+    import math
+    words = text.lower().split()[:_DIM]
+    vec = [math.sin(sum(ord(c) for c in w) * (i + 1)) for i, w in enumerate(words)]
+    vec += [0.0] * (_DIM - len(vec))
+    norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+    return [x / norm for x in vec]
 
 
 def _vertex_embed(text: str) -> list[float]:

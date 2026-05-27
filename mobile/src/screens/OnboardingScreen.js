@@ -1,15 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiFetch } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast, Toast } from '../components/Toast';
-import { colors, radius } from '../theme';
+import { radius } from '../theme';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function OnboardingScreen() {
   const { refreshUser } = useAuth();
   const { toast, showToast } = useToast();
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [categories, setCategories] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -98,7 +101,7 @@ export default function OnboardingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   scroll: { padding: 24, paddingBottom: 40 },
   title: { color: colors.white, fontSize: 30, fontWeight: '800', marginTop: 16 },

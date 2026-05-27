@@ -15,6 +15,8 @@ def generate(prompt: str) -> str:
     """Verilen prompt için düz metin yanıtı döner."""
     if settings.AI_PROVIDER == "openai":
         return _openai_generate(prompt)
+    if settings.AI_PROVIDER == "mock":
+        return _mock_generate(prompt)
     return _vertex_generate(prompt)
 
 
@@ -35,6 +37,13 @@ def _vertex_generate(prompt: str) -> str:
     )
     response = client.models.generate_content(model=_VERTEX_MODEL, contents=prompt)
     return response.text.strip()
+
+
+# ── Mock (yerel geliştirme — API key gerektirmez) ────────────────────────────
+def _mock_generate(prompt: str) -> str:
+    lines = [l.strip() for l in prompt.split("\n") if l.strip()]
+    content = "\n".join(lines[-20:]) if len(lines) > 20 else "\n".join(lines)
+    return content[:2000] if len(content) > 2000 else content
 
 
 # ── OpenAI ───────────────────────────────────────────────────────────────────

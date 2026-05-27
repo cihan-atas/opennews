@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, Pressable, FlatList, Modal, StyleSheet, ActivityIndicator, Linking,
 } from 'react-native';
@@ -8,12 +8,15 @@ import * as Sharing from 'expo-sharing';
 import { apiFetch } from '../api/client';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useToast, Toast } from '../components/Toast';
-import { colors, radius } from '../theme';
+import { radius } from '../theme';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function PodcastScreen() {
   const insets = useSafeAreaInsets();
   const { track, setTrack, clearTrack } = usePlayer();
   const { toast, showToast } = useToast();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [podcasts, setPodcasts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -198,7 +201,7 @@ export default function PodcastScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: 16, paddingBottom: 8 },
   title: { color: colors.white, fontSize: 26, fontWeight: '800' },

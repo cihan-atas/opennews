@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View, Text, Pressable, Modal, ScrollView, StyleSheet, ActivityIndicator, Linking, Share,
 } from 'react-native';
@@ -7,13 +7,16 @@ import * as Clipboard from 'expo-clipboard';
 import { apiFetch } from '../api/client';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useToast, Toast } from './Toast';
-import { colors, radius } from '../theme';
+import { radius } from '../theme';
+import { useTheme } from '../contexts/ThemeContext';
 
 // Web Home.jsx haber-detay modalının portu. Hem Home hem Bookmarks kullanır.
 export default function NewsDetailModal({ newsId, visible, onClose }) {
   const insets = useSafeAreaInsets();
   const { track, setTrack } = usePlayer();
   const { toast, showToast } = useToast();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [activeId, setActiveId] = useState(newsId);
   const [news, setNews] = useState(null);
@@ -240,7 +243,7 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(2,6,23,0.6)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '94%', borderWidth: 1, borderColor: colors.border },
   handleRow: { alignItems: 'flex-end', paddingHorizontal: 20, paddingTop: 4 },

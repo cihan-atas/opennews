@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiFetch } from '../api/client';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useToast, Toast } from '../components/Toast';
-import { colors, radius } from '../theme';
+import { radius } from '../theme';
+import { useTheme } from '../contexts/ThemeContext';
 
 const FEED_COLORS = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6'];
 const feedColor = (title) => {
@@ -21,6 +22,8 @@ export default function RssReaderScreen() {
   const insets = useSafeAreaInsets();
   const { setTrack } = usePlayer();
   const { toast, showToast } = useToast();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [lists, setLists] = useState([]);
   const [selectedList, setSelectedList] = useState(null);
@@ -529,7 +532,7 @@ export default function RssReaderScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: 16, paddingBottom: 8 },
   h1: { color: colors.white, fontSize: 24, fontWeight: '900', marginBottom: 12 },

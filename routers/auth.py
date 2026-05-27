@@ -6,6 +6,7 @@ import models, schemas, utils
 from dependencies import db_dependency
 from datetime import datetime, timedelta, timezone
 from typing_extensions import Annotated, Optional
+from uuid import uuid4
 
 router = APIRouter(
     prefix="/auth",    # Tüm yolların başına otomatik /auth ekler
@@ -141,7 +142,7 @@ def handle_refresh_token_logic(db: Session, response: Response, user_id: int, ol
         db.delete(old_token_obj)
     
     # 2. Yeni Refresh Token üret
-    new_refresh_token = utils.create_refresh_token(data={"sub": str(user_id)})
+    new_refresh_token = utils.create_refresh_token(data={"sub": str(user_id), "jti": str(uuid4())})
     
     # 3. Refresh Token'ı DB'ye kaydet. Böylece ileride blacklist yapabiliriz,
     # yani kullanıcı çıkış yaparken veya token çalındığında bu token'ı geçersiz kılabiliriz.
