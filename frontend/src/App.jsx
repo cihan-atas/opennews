@@ -9,6 +9,8 @@ import Auth from './components/Auth';
 import Onboarding from './components/Onboarding';
 import Bookmarks from './components/Bookmarks';
 import RssReader from './components/RssReader';
+import Dashboard from './components/Dashboard';
+import Admin from './components/Admin';
 import AudioPlayer from './components/AudioPlayer';
 import { PlayerProvider, usePlayer } from './contexts/PlayerContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -39,6 +41,7 @@ function GlobalPlayer() {
       src={track.src}
       title={track.title}
       categoryName={track.category}
+      podcastId={track.podcastId}
       onClose={clearTrack}
       onNavigate={() => navigate('/podcasts')}
       floating
@@ -71,6 +74,8 @@ function AppLayout() {
         <main style={{ flex: 1 }}>
           <Routes>
             <Route path="/home" element={<Home />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/admin" element={<Admin />} />
             <Route path="/podcasts" element={<Podcast />} />
             <Route path="/bookmarks" element={<Bookmarks />} />
             <Route path="/rss-reader" element={<RssReader />} />

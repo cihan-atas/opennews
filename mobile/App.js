@@ -10,6 +10,7 @@ import { PlayerProvider } from './src/contexts/PlayerContext';
 import { ThemeProvider } from './src/contexts/ThemeContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import MiniPlayer from './src/components/MiniPlayer';
+import OfflineBanner from './src/components/OfflineBanner';
 
 export default function App() {
   const navigationRef = useNavigationContainerRef();
@@ -45,6 +46,7 @@ export default function App() {
               <StatusBar style="auto" />
               <RootNavigator navigationRef={navigationRef} />
               <MiniPlayer />
+              <OfflineBanner />
             </PlayerProvider>
           </AuthProvider>
         </ThemeProvider>
