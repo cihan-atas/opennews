@@ -32,6 +32,26 @@ function Podcast() {
   const [podcastToDelete, setPodcastToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // --- TRANSKRİP MODAL ---
+  const [transcriptModal, setTranscriptModal] = useState({ show: false, text: '', loading: false });
+
+  const handleTranscriptClick = async (podcastId) => {
+    setTranscriptModal({ show: true, text: '', loading: true });
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/podcast/${podcastId}/transcript`);
+      if (res.ok) {
+        const data = await res.json();
+        setTranscriptModal({ show: true, text: data.transcript || '', loading: false });
+      } else {
+        setTranscriptModal({ show: false, text: '', loading: false });
+        showToast('Transkrip alınamadı.', 'error');
+      }
+    } catch {
+      setTranscriptModal({ show: false, text: '', loading: false });
+      showToast('Bağlantı hatası.', 'error');
+    }
+  };
+
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
   useEffect(() => {
@@ -100,7 +120,7 @@ function Podcast() {
     } else {
       // 🎯 DOĞRU PARAMETRE SIRALAMASI: url, title, categoryName, autoPlay
       const categoryLabel = pod.news_id ? 'Akış' : 'RSS';
-      setTrack(pod.audio_url, pod.title, categoryLabel, true);
+      setTrack(pod.audio_url, pod.title, categoryLabel, true, pod.id);
       showToast("Podcast kütüphaneden oynatılıyor...", "success");
     }
   };
@@ -204,6 +224,14 @@ function Podcast() {
                         </a>
                       ) : null}
 
+                      <button
+                        onClick={() => handleTranscriptClick(pod.id)}
+                        style={styles.navBtn}
+                        title="Transkripti Görüntüle"
+                        onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.4)'; e.currentTarget.style.color = '#818cf8'; }}
+                        onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#cbd5e1'; }}
+                      >📝 Transkrip</button>
+
                       <a
                         href={pod.audio_url}
                         download={`${pod.title.replace(/[^a-z0-9]/gi, '_')}.mp3`}
@@ -256,6 +284,33 @@ function Podcast() {
           </div>
         )}
       </div>
+
+      {/* TRANSKRİP MODAL */}
+      {transcriptModal.show && (
+        <div style={styles.modalOverlay} onClick={() => setTranscriptModal({ show: false, text: '', loading: false })}>
+          <div
+            style={{ ...styles.modalBox, maxWidth: '680px', width: '90%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', textAlign: 'left' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <h2 style={{ color: 'white', fontSize: '1.5rem', fontWeight: '800', margin: 0 }}>📝 Podcast Transkripti</h2>
+              <button
+                onClick={() => setTranscriptModal({ show: false, text: '', loading: false })}
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+              >✕</button>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
+              {transcriptModal.loading ? (
+                <p style={{ color: '#94a3b8', textAlign: 'center', padding: '2rem' }}>Transkrip hazırlanıyor...</p>
+              ) : (
+                <p style={{ color: '#cbd5e1', lineHeight: '1.8', fontSize: '0.95rem', whiteSpace: 'pre-wrap', margin: 0 }}>
+                  {transcriptModal.text || 'Transkrip bulunamadı.'}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* SİLME ONAY MODAL */}
       {podcastToDelete && (

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  View, Text, Pressable, FlatList, Modal, StyleSheet, ActivityIndicator, Linking,
+  View, Text, Pressable, FlatList, Modal, StyleSheet, ActivityIndicator, Linking, ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system';
@@ -25,7 +25,8 @@ export default function PodcastScreen() {
   const [totalCount, setTotalCount] = useState(0);
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [downloading, setDownloading] = useState(null); // podcast id
+  const [downloading, setDownloading] = useState(null);
+  const [transcriptModal, setTranscriptModal] = useState({ show: false, text: '', loading: false });
 
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
@@ -52,7 +53,7 @@ export default function PodcastScreen() {
       clearTrack();
       showToast('Podcast kapatıldı.');
     } else {
-      setTrack(pod.audio_url, pod.title, pod.news_id ? 'Akış' : 'RSS', true);
+      setTrack(pod.audio_url, pod.title, pod.news_id ? 'Akış' : 'RSS', true, pod.id);
       showToast('Podcast oynatılıyor…');
     }
   };
@@ -76,6 +77,23 @@ export default function PodcastScreen() {
     } finally {
       setDeleting(false);
       setToDelete(null);
+    }
+  };
+
+  const handleTranscriptPress = async (podcastId) => {
+    setTranscriptModal({ show: true, text: '', loading: true });
+    try {
+      const res = await apiFetch(`/podcast/${podcastId}/transcript`);
+      if (res.ok) {
+        const data = await res.json();
+        setTranscriptModal({ show: true, text: data.transcript || '', loading: false });
+      } else {
+        setTranscriptModal({ show: false, text: '', loading: false });
+        showToast('Transkrip alınamadı.', 'error');
+      }
+    } catch (_) {
+      setTranscriptModal({ show: false, text: '', loading: false });
+      showToast('Bağlantı hatası.', 'error');
     }
   };
 
@@ -125,6 +143,9 @@ export default function PodcastScreen() {
               <Text style={{ color: colors.textMuted, fontWeight: '600' }}>🔗 Kaynak</Text>
             </Pressable>
           )}
+          <Pressable onPress={() => handleTranscriptPress(pod.id)} style={styles.navBtn}>
+            <Text style={{ color: colors.textMuted, fontWeight: '600' }}>📝 Transkrip</Text>
+          </Pressable>
           <Pressable
             onPress={() => handleDownload(pod)}
             disabled={downloading === pod.id}
@@ -179,6 +200,33 @@ export default function PodcastScreen() {
           }
         />
       )}
+
+      <Modal
+        visible={transcriptModal.show}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setTranscriptModal({ show: false, text: '', loading: false })}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { borderColor: 'rgba(99,102,241,0.3)', maxHeight: '75%' }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={[styles.modalTitle, { textAlign: 'left', marginTop: 0 }]}>📝 Transkrip</Text>
+              <Pressable onPress={() => setTranscriptModal({ show: false, text: '', loading: false })}>
+                <Text style={{ color: colors.textMuted, fontSize: 20 }}>✕</Text>
+              </Pressable>
+            </View>
+            {transcriptModal.loading ? (
+              <ActivityIndicator color={colors.primaryLight} style={{ paddingVertical: 24 }} />
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={{ color: colors.textMuted, lineHeight: 24, fontSize: 14 }}>
+                  {transcriptModal.text || 'Transkrip bulunamadı.'}
+                </Text>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={!!toDelete} transparent animationType="fade" onRequestClose={() => setToDelete(null)}>
         <View style={styles.modalOverlay}>
