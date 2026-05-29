@@ -20,6 +20,8 @@ function Home() {
   const { setTrack } = usePlayer();
   const pollRef = useRef(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [bulletinLoading, setBulletinLoading] = useState(false);
+  const bulletinPollRef = useRef(null);
   
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -83,6 +85,10 @@ function Home() {
       if (refreshPollRef.current) {
         clearInterval(refreshPollRef.current);
         refreshPollRef.current = null;
+      }
+      if (bulletinPollRef.current) {
+        clearInterval(bulletinPollRef.current);
+        bulletinPollRef.current = null;
       }
     };
   }, []);
@@ -172,7 +178,60 @@ function Home() {
   };
   
 
-  const handleCategoryChange = (catId) => { 
+  const handleBulletin = async () => {
+    if (bulletinLoading) return;
+    setBulletinLoading(true);
+    showToast("🎙️ Günlük bülten hazırlanıyor, bu bir dakika sürebilir...", "success");
+    try {
+      // Gerçek bir kategori seçiliyse (null=ilgi alanları, 0=tümü) onu filtre olarak gönder.
+      const catId = activeCategoryIdRef.current;
+      const payload = { limit: 5 };
+      if (catId && catId !== 0) payload.category_id = catId;
+
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/news/bulletin`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.detail || "Bülten oluşturulamadı.", "error");
+        setBulletinLoading(false);
+        return;
+      }
+      const { title } = await res.json();
+
+      // Hazır olana kadar yokla (en fazla ~3 dk).
+      let tries = 0;
+      if (bulletinPollRef.current) clearInterval(bulletinPollRef.current);
+      bulletinPollRef.current = setInterval(async () => {
+        tries += 1;
+        try {
+          const check = await fetchWithAuth(
+            `${import.meta.env.VITE_API_URL}/news/bulletin/check?title=${encodeURIComponent(title)}`
+          );
+          if (check.ok) {
+            const pod = await check.json();
+            clearInterval(bulletinPollRef.current);
+            bulletinPollRef.current = null;
+            setBulletinLoading(false);
+            setTrack(pod.audio_url, pod.title, 'Günlük Bülten', true, pod.id);
+            showToast("✅ Bülten hazır, oynatılıyor!", "success");
+          }
+        } catch (_) {}
+        if (tries >= 90) {
+          clearInterval(bulletinPollRef.current);
+          bulletinPollRef.current = null;
+          setBulletinLoading(false);
+          showToast("Bülten beklenenden uzun sürdü; Podcast'ler sayfasından kontrol edin.", "error");
+        }
+      }, 2000);
+    } catch (_) {
+      setBulletinLoading(false);
+      showToast("Bülten oluşturulamadı.", "error");
+    }
+  };
+
+  const handleCategoryChange = (catId) => {
     // Ref'i anında en güncel kategori ID'si ile eşitliyoruz, böylece herhangi bir döngü veya asenkron işlem içinde doğru değeri yakalayabiliriz
     activeCategoryIdRef.current = catId;
 
@@ -287,7 +346,7 @@ function Home() {
           setAudioUrl(data.audio_url);
           setPodcastAutoPlay(true);
           setPodcastStatus('ready');
-          setTrack(data.audio_url, newsTitle, newsCategory);
+          setTrack(data.audio_url, newsTitle, newsCategory, true, data.id);
           stopPolling();
           showToast("Podcast hazır!", "success");
         }
@@ -321,7 +380,7 @@ function Home() {
         const podData = await podRes.json();
         setAudioUrl(podData.audio_url);
         setPodcastStatus('ready');
-        setTrack(podData.audio_url, newsDetail?.title, newsDetail?.category?.name);
+        setTrack(podData.audio_url, newsDetail?.title, newsDetail?.category?.name, true, podData.id);
       }
 
       if (bookmarkRes.ok) {
@@ -442,6 +501,11 @@ function Home() {
         </div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', width: isMobile ? '100%' : 'auto' }}>
           <input type="text" placeholder="Gündemi tara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} style={{ padding: '14px 24px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'rgba(15, 23, 42, 0.4)', color: 'white', outline: 'none', width: isMobile ? '100%' : '300px', flex: isMobile ? 1 : 'none', boxSizing: 'border-box' }} />
+          <button onClick={handleBulletin} disabled={bulletinLoading} title="Günün haberlerinden tek bir sesli bülten oluştur"
+            style={{ height: '48px', padding: '0 18px', borderRadius: '16px', border: '1px solid rgba(99,102,241,0.35)', background: bulletinLoading ? 'rgba(99,102,241,0.12)' : 'rgba(99,102,241,0.18)', color: '#c7d2fe', cursor: bulletinLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, whiteSpace: 'nowrap', fontWeight: 600 }}>
+            <span style={{ fontSize: '18px' }}>🎙️</span>
+            {bulletinLoading ? 'Hazırlanıyor…' : 'Bülten'}
+          </button>
           <button onClick={handleRefresh} disabled={refreshing} title="Gündemi tazele" style={{ width: '48px', height: '48px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(30, 41, 59, 0.5)', cursor: refreshing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.2s', padding: 0 }}
             onMouseOver={e => { if (!refreshing) { e.currentTarget.style.background = 'rgba(99,102,241,0.15)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.3)'; }}}
             onMouseOut={e => { e.currentTarget.style.background = 'rgba(30, 41, 59, 0.5)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; }}

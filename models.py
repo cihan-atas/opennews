@@ -178,6 +178,19 @@ class PushToken(Base):
     user = relationship("User")
 
 
+class TranslationCache(Base):
+    """Çeviri sonuçlarını cache'ler — aynı metin + hedef dil tekrar gelirse AI çağrısı yapılmaz.
+
+    source_hash = md5(text + '|' + target_lang) — metnin tamamını saklamadan hızlı arama."""
+    __tablename__ = "translation_cache"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_hash = Column(String, unique=True, index=True, nullable=False)
+    target_lang = Column(String, nullable=False)  # "en" | "tr"
+    translated_text = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class SavedRssArticle(Base):
     __tablename__ = "saved_rss_articles"
 

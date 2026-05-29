@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing_extensions import Optional
+from pydantic import BaseModel
 import schemas, models
 from dependencies import db_dependency, user_dependency
 from utils import get_embedding
 import services.ai as ai_service
-from worker import run_scraper_task
+from worker import run_scraper_task, process_bulletin_tts_task
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import func
 import logging
@@ -164,6 +165,50 @@ def refresh_news(current_user: user_dependency):
     return {"status": "processing"}
 
 
+class BulletinRequest(BaseModel):
+    news_ids: Optional[list[int]] = None   # Belirli haberler; verilmezse otomatik seçim
+    category_id: Optional[int] = None      # Otomatik seçimde kategori filtresi
+    limit: int = 5                         # Otomatik seçimde haber sayısı
+
+
+@router.post("/bulletin", status_code=status.HTTP_202_ACCEPTED)
+def create_bulletin(body: BulletinRequest, db: db_dependency, current_user: user_dependency):
+    """Birden çok haberi tek bir 'günlük bülten' podcast'inde birleştirir.
+
+    news_ids verilirse onları, yoksa (opsiyonel kategori filtresiyle) en güncel
+    haberleri kullanır. Üretim asenkron; istemci dönen `title` ile
+    GET /news/bulletin/check?title=... üzerinden durumu izler."""
+    if body.news_ids:
+        news_ids = body.news_ids[:10]
+    else:
+        q = db.query(models.News.id).order_by(models.News.published_at.desc().nullslast())
+        if body.category_id:
+            q = q.filter(models.News.category_id == body.category_id)
+        limit = max(2, min(body.limit, 10))
+        news_ids = [r.id for r in q.limit(limit).all()]
+
+    if len(news_ids) < 2:
+        raise HTTPException(status_code=400, detail="Bülten için en az 2 haber gerekiyor.")
+
+    title = f"Günlük Bülten — {datetime.now(timezone.utc).astimezone().strftime('%d.%m.%Y %H:%M')}"
+    process_bulletin_tts_task.delay(news_ids, current_user.id, title)
+    return {"status": "processing", "title": title, "count": len(news_ids)}
+
+
+@router.get("/bulletin/check", response_model=schemas.PodcastOut)
+def check_bulletin(title: str, db: db_dependency, current_user: user_dependency):
+    """Bülten podcast'i hazır mı? Hazırsa Podcast'i döner, değilse 404."""
+    podcast = (
+        db.query(models.Podcast)
+        .filter(models.Podcast.user_id == current_user.id, models.Podcast.title == title)
+        .order_by(models.Podcast.created_at.desc())
+        .first()
+    )
+    if not podcast:
+        raise HTTPException(status_code=404, detail="Bülten henüz hazır değil.")
+    return podcast
+
+
 @router.get("/trending", response_model=list[schemas.NewsListOut])
 def get_trending_news(db: db_dependency, current_user: user_dependency, limit: int = 10):
     since = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -261,7 +306,8 @@ def translate_news(news_id: int, db: db_dependency, current_user: user_dependenc
     if not news:
         raise HTTPException(status_code=404, detail="Haber bulunamadı.")
     text = news.summary or news.content[:3000]
-    translated = ai_service.translate(text, lang)
+    from utils import translate_cached
+    translated = translate_cached(db, text, lang)
     return {"translated": translated, "lang": lang}
 
 

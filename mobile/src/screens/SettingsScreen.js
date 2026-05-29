@@ -24,6 +24,9 @@ export default function SettingsScreen() {
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [stats, setStats] = useState(null);
+  const [adminStats, setAdminStats] = useState(null);
+  const [pendingRss, setPendingRss] = useState([]);
+  const [rssProcessing, setRssProcessing] = useState(null);
 
   useEffect(() => {
     if (user?.interests) setSelected(user.interests.map((i) => i.id));
@@ -36,8 +39,34 @@ export default function SettingsScreen() {
         if (catRes.ok) setAllCategories(await catRes.json());
         if (statsRes.ok) setStats(await statsRes.json());
       } catch (_) {}
+
+      // Admin verileri (yalnızca yetkili kullanıcı için)
+      if (user?.is_admin) {
+        try {
+          const [aStatsRes, pendingRes] = await Promise.all([
+            apiFetch('/admin/stats'),
+            apiFetch('/rss/pending'),
+          ]);
+          if (aStatsRes.ok) setAdminStats(await aStatsRes.json());
+          if (pendingRes.ok) setPendingRss(await pendingRes.json());
+        } catch (_) {}
+      }
     })();
   }, [user]);
+
+  const handleRssDecision = async (id, approve) => {
+    setRssProcessing(id);
+    try {
+      const res = await apiFetch(`/rss/${id}/${approve ? 'approve' : 'reject'}`, { method: 'POST' });
+      if (res.ok) {
+        setPendingRss((p) => p.filter((s) => s.id !== id));
+        showToast(approve ? 'Kaynak onaylandı.' : 'Kaynak reddedildi.');
+      } else {
+        showToast('İşlem başarısız.', 'error');
+      }
+    } catch (_) { showToast('Bağlantı hatası.', 'error'); }
+    finally { setRssProcessing(null); }
+  };
 
   const toggle = (id) => setSelected((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
@@ -114,6 +143,58 @@ export default function SettingsScreen() {
               <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 12 }}>
                 En çok okuduğun: <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>{stats.favorite_category}</Text>
               </Text>
+            )}
+          </View>
+        )}
+
+        {/* Yönetim — yalnızca admin */}
+        {user?.is_admin && (
+          <View style={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.primaryLight }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>🛠️ Yönetim</Text>
+
+            {adminStats && (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 6 }}>
+                {[
+                  { label: 'Kullanıcı', value: adminStats.users, icon: '👥' },
+                  { label: 'Haber', value: adminStats.news, icon: '📰' },
+                  { label: 'Podcast', value: adminStats.podcasts, icon: '🎙️' },
+                  { label: 'Bekleyen RSS', value: adminStats.pending_rss, icon: '⏳' },
+                ].map((item) => (
+                  <View key={item.label} style={styles.statCard}>
+                    <Text style={{ fontSize: 22, marginBottom: 4 }}>{item.icon}</Text>
+                    <Text style={styles.statValue}>{item.value}</Text>
+                    <Text style={[styles.statLabel, { color: colors.textDim }]}>{item.label}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700', marginTop: 10, marginBottom: 8 }}>
+              Bekleyen RSS Kaynakları ({pendingRss.length})
+            </Text>
+            {pendingRss.length === 0 ? (
+              <Text style={{ color: colors.textDim, fontSize: 13 }}>Onay bekleyen kaynak yok.</Text>
+            ) : (
+              pendingRss.map((src) => (
+                <View key={src.id} style={{ borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingVertical: 10 }}>
+                  {!!src.title && <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>{src.title}</Text>}
+                  <Text style={{ color: colors.textDim, fontSize: 12 }} numberOfLines={1}>{src.url}</Text>
+                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+                    <Pressable
+                      onPress={() => handleRssDecision(src.id, true)}
+                      disabled={rssProcessing === src.id}
+                      style={{ flex: 1, paddingVertical: 9, borderRadius: radius.sm, backgroundColor: 'rgba(16,185,129,0.15)', alignItems: 'center' }}>
+                      <Text style={{ color: colors.success || '#10b981', fontWeight: '700' }}>✓ Onayla</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => handleRssDecision(src.id, false)}
+                      disabled={rssProcessing === src.id}
+                      style={{ flex: 1, paddingVertical: 9, borderRadius: radius.sm, backgroundColor: 'rgba(239,68,68,0.12)', alignItems: 'center' }}>
+                      <Text style={{ color: colors.danger || '#ef4444', fontWeight: '700' }}>✕ Reddet</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))
             )}
           </View>
         )}

@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 import os
-from routers import auth, news, podcast, users, categories, bookmarks, feed, rss, rss_reader  # Routers klasöründen çekiyoruz
+from routers import auth, news, podcast, users, categories, bookmarks, feed, rss, rss_reader, admin  # Routers klasöründen çekiyoruz
 from database import engine, SessionLocal
 import models
 from seed_data import seed_categories
@@ -123,6 +123,7 @@ app.include_router(bookmarks.router)
 app.include_router(feed.router)
 app.include_router(rss.router)
 app.include_router(rss_reader.router)
+app.include_router(admin.router)
 
 @app.get("/")
 def root():

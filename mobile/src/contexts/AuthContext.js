@@ -21,6 +21,11 @@ export function AuthProvider({ children }) {
           setToken(stored);
           await refreshUser();
         }
+      } catch (_) {
+        // Saklı token geçersiz / kullanıcı çekilemedi → oturumu temizle.
+        await clearTokens();
+        setToken(null);
+        setUser(null);
       } finally {
         setBootstrapping(false);
       }
@@ -37,11 +42,16 @@ export function AuthProvider({ children }) {
     });
   }, []);
 
+  // Başarılı olursa user'ı set edip döndürür; aksi halde hata fırlatır.
+  // Sessizce yutmuyoruz — yoksa login başarılı görünüp user null kalabilir.
   const refreshUser = useCallback(async () => {
-    try {
-      const res = await apiFetch('/users/me');
-      if (res.ok) setUser(await res.json());
-    } catch (_) {}
+    const res = await apiFetch('/users/me');
+    if (!res.ok) {
+      throw new Error('Kullanıcı bilgisi alınamadı.');
+    }
+    const data = await res.json();
+    setUser(data);
+    return data;
   }, []);
 
   // FastAPI /auth/login OAuth2PasswordRequestForm bekler → form-urlencoded.
@@ -68,7 +78,15 @@ export function AuthProvider({ children }) {
     const data = await res.json();
     await setTokens(data.access_token, data.refresh_token);
     setToken(data.access_token);
-    await refreshUser();
+    try {
+      await refreshUser();
+    } catch (e) {
+      // Token alındı ama kullanıcı çekilemedi → yarım oturumu temizle ve login'i başarısız say.
+      await clearTokens();
+      setToken(null);
+      setUser(null);
+      throw new Error('Giriş tamamlanamadı, lütfen tekrar deneyin.');
+    }
 
     // Push token kaydet (hata login'i engellemez)
     try {

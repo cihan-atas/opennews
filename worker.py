@@ -36,20 +36,32 @@ def process_news_and_tts_task(news_id: int, user_id: int):
 
         print(f"[Worker] Haber bulundu: '{news.title}' — AI ile özetleniyor...")
 
-        # 2. Özetle (sağlayıcı .env'den: vertex/openai)
-        prompt = (
-            "Aşağıdaki haberi Türkçe olarak kapsamlı bir podcast özeti olarak hazırla. "
-            "Haberin tüm önemli detaylarını, bağlamını ve sonuçlarını kapsayan 8-12 cümlelik akıcı bir anlatı oluştur. "
-            "Podcast için sesli okunacağından doğal bir konuşma diliyle yaz, "
-            "madde işareti veya başlık kullanma:\n\n"
-            f"{news.content}"
-        )
-        summary = ai_service.generate(prompt)
+        # 2a. Kısa görüntü özeti (news feed kartları için) — yoksa üret
+        if not news.summary:
+            short_prompt = (
+                "Aşağıdaki haberi Türkçe olarak kısa bir haber özeti olarak hazırla.\n\n"
+                "KURALLAR:\n"
+                "1. Haberin en önemli bilgisini aktaran 3-4 cümlelik özlü bir özet yaz.\n"
+                "2. Madde işareti veya başlık kullanma, düz metin olsun.\n\n"
+                f"İçerik:\n{news.content}"
+            )
+            news.summary = ai_service.generate(short_prompt)
+            db.commit()
+            print(f"[Worker] Kısa özet kaydedildi ({len(news.summary.split())} kelime).")
 
-        # Özeti News tablosuna kaydet
-        news.summary = summary
-        db.commit()
-        print(f"[Worker] Özet oluşturuldu ve kaydedildi ({len(summary.split())} kelime).")
+        # 2b. Podcast TTS senaryosu (uzun, ses için) — ayrı üretilir, DB'ye kaydedilmez
+        tts_prompt = (
+            "Aşağıdaki haberi Türkçe olarak akıcı bir haber anlatımı şeklinde hazırla.\n\n"
+            "KURALLAR:\n"
+            "1. Haberin tüm önemli detaylarını, bağlamını ve sonuçlarını kapsayan 10-12 cümlelik akıcı bir anlatı oluştur.\n"
+            "2. Sesli okunacağından doğal bir konuşma diliyle yaz, madde işareti veya başlık kullanma.\n"
+            "3. Asla 'Bu podcast'te', 'Bu bölümde', 'Bugün size', 'Hoş geldiniz' gibi sunucu ifadeleri veya program girişleri kullanma. Doğrudan haberi anlatmaya başla.\n"
+            "4. İngilizce marka, şirket ve teknik terimlere Türkçe ek getirirken kelimenin okunuşunu baz al (örn: Google'de değil Google'da; OpenAI'ye değil OpenAI'ya; API'ye; GitHub'a).\n"
+            "5. Bu ekleri mutlaka kesme işareti (') ile ayır (örn: Google'da, OpenAI'ın, API'lar).\n\n"
+            f"İçerik:\n{news.content}"
+        )
+        summary = ai_service.generate(tts_prompt, quality=True)
+        print(f"[Worker] TTS senaryosu oluşturuldu ({len(summary.split())} kelime).")
 
         # Embedding üret ve kaydet (başlık + içerik)
         print("[Worker] Embedding üretiliyor...")
@@ -131,10 +143,9 @@ def auto_generate_summaries_and_embeddings_task():
                 if not news.summary:
                     print(f"[AI Pipeline] '{news.title[:50]}' için özet üretiliyor...")
                     prompt = (
-                        "Aşağıdaki haberi Türkçe olarak kapsamlı bir podcast özeti olarak hazırla. "
-                        "Haberin tüm önemli detaylarını, bağlamını ve sonuçlarını kapsayan 8-12 cümlelik akıcı bir anlatı oluştur. "
-                        "Podcast için sesli okunacağından doğal bir konuşma diliyle yaz, "
-                        "madde işareti veya başlık kullanma:\n\n"
+                        "Aşağıdaki haberi Türkçe olarak kısa bir haber özeti olarak hazırla. "
+                        "Haberin en önemli bilgisini aktaran 3-4 cümlelik özlü bir özet yaz. "
+                        "Madde işareti veya başlık kullanma, düz metin olsun:\n\n"
                         f"{news.content}"
                     )
                     news.summary = ai_service.generate(prompt)
@@ -168,13 +179,16 @@ def process_rss_article_tts_task(title: str, content: str, user_id: int, source_
     db = SessionLocal()
     try:
         prompt = (
-            "Aşağıdaki haberi Türkçe olarak kapsamlı bir podcast özeti olarak hazırla. "
-            "Haberin tüm önemli detaylarını, bağlamını ve sonuçlarını kapsayan 8-12 cümlelik akıcı bir anlatı oluştur. "
-            "Podcast için sesli okunacağından doğal bir konuşma diliyle yaz, "
-            "madde işareti veya başlık kullanma:\n\n"
+            "Aşağıdaki haberi Türkçe olarak akıcı bir haber anlatımı şeklinde hazırla.\n\n"
+            "KURALLAR:\n"
+            "1. Haberin tüm önemli detaylarını, bağlamını ve sonuçlarını kapsayan 10-12 cümlelik akıcı bir anlatı oluştur.\n"
+            "2. Sesli okunacağından doğal bir konuşma diliyle yaz, madde işareti veya başlık kullanma.\n"
+            "3. Asla 'Bu podcast'te', 'Bu bölümde', 'Bugün size', 'Hoş geldiniz' gibi sunucu ifadeleri veya program girişleri kullanma. Doğrudan haberi anlatmaya başla.\n"
+            "4. İngilizce marka, şirket ve teknik terimlere Türkçe ek getirirken kelimenin okunuşunu baz al (örn: Google'de değil Google'da; OpenAI'ye değil OpenAI'ya; API'ye; GitHub'a).\n"
+            "5. Bu ekleri mutlaka kesme işareti (') ile ayır (örn: Google'da, OpenAI'ın, API'lar).\n\n"
             f"Başlık: {title}\n\nİçerik: {content[:3000]}"
         )
-        summary = ai_service.generate(prompt)
+        summary = ai_service.generate(prompt, quality=True)
         segments = ai_service.segment_for_tts(summary)
 
         audio_bytes = tts_service.synthesize_segmented(segments)
@@ -206,6 +220,97 @@ def process_rss_article_tts_task(title: str, content: str, user_id: int, source_
     except Exception as e:
         db.rollback()
         print(f"[Worker] RSS TTS HATA: {e}")
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+@celery_app.task(name="process_bulletin_tts", queue="ai_queue")
+def process_bulletin_tts_task(news_ids: list, user_id: int, title: str):
+    """Birden çok haberi tek bir akıcı 'bülten' senaryosunda birleştirip tek audio üretir.
+
+    Mevcut tek-haber podcast akışını (process_news_and_tts_task) yeniden kullanır; fark,
+    birden çok haberin özetini tek bir senaryoda birleştirmesi ve podcast'i news_id=None
+    olarak kaydetmesidir (RSS podcast'i gibi)."""
+    import hashlib
+    tmp_key = hashlib.md5(f"bulletin{user_id}{title}".encode()).hexdigest()[:12]
+    tmp_path = f"/tmp/bulletin_{tmp_key}.mp3"
+    db = SessionLocal()
+    try:
+        news_items = (
+            db.query(models.News)
+            .filter(models.News.id.in_(news_ids))
+            .all()
+        )
+        # İstenen sırayı koru
+        order = {nid: i for i, nid in enumerate(news_ids)}
+        news_items.sort(key=lambda n: order.get(n.id, 1e9))
+        if not news_items:
+            return {"status": "error", "message": "Bülten için haber bulunamadı."}
+
+        # Her haber için özet (yoksa üret), tek bir bütün metin halinde topla
+        parts = []
+        for n in news_items:
+            if not n.summary:
+                short_prompt = (
+                    "Aşağıdaki haberi Türkçe, 2-3 cümlelik düz metin bir özet olarak yaz "
+                    "(madde işareti/başlık yok):\n\n" + n.content
+                )
+                try:
+                    n.summary = ai_service.generate(short_prompt)
+                    db.commit()
+                except Exception as e:
+                    print(f"[Bulletin] Özet üretilemedi (news {n.id}): {e}")
+            parts.append(f"- {n.title}\n{n.summary or n.content[:500]}")
+
+        joined = "\n\n".join(parts)
+        bulletin_prompt = (
+            "Aşağıda günün haber başlıkları ve kısa özetleri var. Bunları tek bir akıcı, "
+            "Türkçe haber bülteni senaryosu haline getir.\n\n"
+            "KURALLAR:\n"
+            "1. Kısa bir karşılama cümlesiyle başla (örn. 'Günün öne çıkan haberlerine geçiyoruz.').\n"
+            "2. Her haberi 2-3 cümleyle, aralarında doğal geçişlerle ('Bir diğer gelişme...', "
+            "'Öte yandan...') anlat.\n"
+            "3. Sesli okunacağından doğal konuşma diliyle yaz; madde işareti veya başlık kullanma.\n"
+            "4. Kısa bir kapanış cümlesiyle bitir.\n"
+            "5. İngilizce marka/terimlere Türkçe ek getirirken okunuşu baz al ve kesme işaretiyle ayır "
+            "(örn. Google'da, OpenAI'ın, API'lar).\n\n"
+            f"Haberler:\n{joined}"
+        )
+        script = ai_service.generate(bulletin_prompt, quality=True)
+        print(f"[Bulletin] Senaryo üretildi ({len(script.split())} kelime, {len(news_items)} haber).")
+
+        segments = ai_service.segment_for_tts(script)
+        audio_bytes = tts_service.synthesize_segmented(segments)
+        with open(tmp_path, "wb") as f:
+            f.write(audio_bytes)
+
+        destination_blob = f"podcasts/bulletin_{tmp_key}.mp3"
+        audio_url = upload_to_gcs(tmp_path, destination_blob)
+
+        word_count = len(script.split())
+        duration_seconds = max(1, int(word_count / 150 * 60))
+
+        podcast = models.Podcast(
+            title=title,
+            audio_url=audio_url,
+            user_id=user_id,
+            duration=duration_seconds,
+            news_id=None,
+            source_url=None,
+        )
+        db.add(podcast)
+        db.commit()
+        print(f"[Bulletin] Podcast kaydedildi — ID: {podcast.id}")
+
+        _notify_user(db, user_id, title)
+        return {"status": "success", "podcast_id": podcast.id}
+
+    except Exception as e:
+        db.rollback()
+        print(f"[Bulletin] HATA: {e}")
         return {"status": "error", "message": str(e)}
     finally:
         db.close()

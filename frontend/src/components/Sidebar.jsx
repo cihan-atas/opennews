@@ -8,6 +8,7 @@ function Sidebar({ isCollapsed = false, onToggle }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const { isMobile } = useWindowSize();
@@ -52,6 +53,7 @@ function Sidebar({ isCollapsed = false, onToggle }) {
         if (res.ok) {
           const data = await res.json();
           setUsername(data.full_name || data.username || 'Kullanıcı');
+          setIsAdmin(!!data.is_admin);
         }
       } catch (_) {}
     };
@@ -60,6 +62,7 @@ function Sidebar({ isCollapsed = false, onToggle }) {
 
   const confirmLogout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
     navigate('/auth');
   };
 
@@ -69,7 +72,7 @@ function Sidebar({ isCollapsed = false, onToggle }) {
     { name: 'Podcastlerim', path: '/podcasts', icon: '🎙️' },
     { name: 'Kaydedilenler', path: '/bookmarks', icon: '🔖' },
     { name: 'RSS Okuyucu', path: '/rss-reader', icon: '📡' },
-    { name: 'Admin', path: '/admin', icon: '🛠️' },
+    ...(isAdmin ? [{ name: 'Admin', path: '/admin', icon: '🛠️' }] : []),
   ];
 
   const styles = {

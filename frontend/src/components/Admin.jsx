@@ -9,12 +9,19 @@ export default function Admin() {
   const [pending, setPending] = useState([]);
   const [approved, setApproved] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(null);
+  const [userProcessing, setUserProcessing] = useState(null);
 
   // Yeni kaynak ekleme formu
   const [addForm, setAddForm] = useState({ url: '', title: '', category_id: '' });
   const [adding, setAdding] = useState(false);
+
+  const [newCatName, setNewCatName] = useState('');
+  const [creatingCat, setCreatingCat] = useState(false);
+  const [showNewCat, setShowNewCat] = useState(false);
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   const showToast = (message, type = 'success') => setToast({ show: true, message, type });
@@ -28,14 +35,18 @@ export default function Admin() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [pendingRes, approvedRes, catRes] = await Promise.all([
+      const [pendingRes, approvedRes, catRes, statsRes, usersRes] = await Promise.all([
         fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss/pending`),
         fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss/approved`),
         fetchWithAuth(`${import.meta.env.VITE_API_URL}/categories/`),
+        fetchWithAuth(`${import.meta.env.VITE_API_URL}/admin/stats`),
+        fetchWithAuth(`${import.meta.env.VITE_API_URL}/admin/users`),
       ]);
       if (pendingRes.ok) setPending(await pendingRes.json());
       if (approvedRes.ok) setApproved(await approvedRes.json());
       if (catRes.ok) setCategories(await catRes.json());
+      if (statsRes.ok) setStats(await statsRes.json());
+      if (usersRes.ok) setUsers(await usersRes.json());
     } catch (_) {
       showToast('Veriler yüklenemedi.', 'error');
     } finally {
@@ -110,6 +121,71 @@ export default function Admin() {
     }
   };
 
+  const handleCreateCategory = async (e) => {
+    e.preventDefault();
+    if (!newCatName.trim()) return;
+    setCreatingCat(true);
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/categories/`, {
+        method: 'POST',
+        body: JSON.stringify({ name: newCatName.trim() }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setCategories(c => [...c, created]);
+        setAddForm(f => ({ ...f, category_id: String(created.id) }));
+        setNewCatName('');
+        setShowNewCat(false);
+        showToast(`"${created.name}" kategorisi oluşturuldu.`);
+      } else {
+        const err = await res.json();
+        showToast(err.detail || 'Kategori oluşturulamadı.', 'error');
+      }
+    } catch (_) {
+      showToast('Bağlantı hatası.', 'error');
+    } finally {
+      setCreatingCat(false);
+    }
+  };
+
+  const handleToggleAdmin = async (userId) => {
+    setUserProcessing(userId);
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/admin/users/${userId}/toggle-admin`, { method: 'POST' });
+      if (res.ok) {
+        const updated = await res.json();
+        setUsers(us => us.map(u => u.id === userId ? { ...u, is_admin: updated.is_admin } : u));
+        showToast(updated.is_admin ? 'Admin yetkisi verildi.' : 'Admin yetkisi kaldırıldı.');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.detail || 'İşlem başarısız.', 'error');
+      }
+    } catch (_) {
+      showToast('Bağlantı hatası.', 'error');
+    } finally {
+      setUserProcessing(null);
+    }
+  };
+
+  const handleDeleteUser = async (userId, username) => {
+    if (!window.confirm(`"${username}" kullanıcısını ve tüm verilerini kalıcı olarak silmek istediğine emin misin?`)) return;
+    setUserProcessing(userId);
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/admin/users/${userId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setUsers(us => us.filter(u => u.id !== userId));
+        showToast('Kullanıcı silindi.');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.detail || 'Silinemedi.', 'error');
+      }
+    } catch (_) {
+      showToast('Bağlantı hatası.', 'error');
+    } finally {
+      setUserProcessing(null);
+    }
+  };
+
   const inputStyle = {
     width: '100%', padding: '10px 14px', borderRadius: '10px',
     border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(15,23,42,0.8)',
@@ -148,7 +224,7 @@ export default function Admin() {
         <h1 style={{ fontSize: isMobile ? '2rem' : '3rem', fontWeight: '800', margin: 0, letterSpacing: '-1px', background: 'linear-gradient(to right, #ffffff, #cbd5e1)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
           🛠️ Admin Paneli
         </h1>
-        <p style={{ color: '#94a3b8', marginTop: '8px', fontSize: '1.05rem' }}>Topluluk RSS kaynaklarını yönet ve doğrudan ekle.</p>
+        <p style={{ color: '#94a3b8', marginTop: '8px', fontSize: '1.05rem' }}>İstatistikleri görüntüle, kullanıcıları ve topluluk RSS kaynaklarını yönet.</p>
       </div>
 
       <div style={{ maxWidth: '1000px', margin: '0 auto', padding: isMobile ? '0 1.5rem 6rem' : '0 3rem 6rem' }}>
@@ -156,6 +232,37 @@ export default function Admin() {
           <p style={{ color: '#94a3b8', textAlign: 'center', marginTop: '4rem', fontSize: '1.2rem' }}>Yükleniyor...</p>
         ) : (
           <>
+            {/* Sistem İstatistikleri */}
+            {stats && (
+              <div style={{ marginBottom: '3rem' }}>
+                <h2 style={{ margin: '0 0 1.25rem', color: 'white', fontSize: '1.4rem', fontWeight: '800' }}>📊 Sistem İstatistikleri</h2>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '12px' }}>
+                  {[
+                    { label: 'Kullanıcı', value: stats.users, sub: `${stats.admins} admin`, color: '#818cf8' },
+                    { label: 'Haber', value: stats.news, sub: `son 24s: ${stats.news_last_24h}`, color: '#10b981' },
+                    { label: 'Podcast', value: stats.podcasts, sub: 'üretilen', color: '#f59e0b' },
+                    { label: 'Bekleyen RSS', value: stats.pending_rss, sub: 'onay bekliyor', color: '#ef4444' },
+                  ].map(c => (
+                    <div key={c.label} style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '16px', padding: '1.1rem 1.25rem' }}>
+                      <div style={{ fontSize: '1.9rem', fontWeight: '800', color: c.color, lineHeight: 1 }}>{c.value}</div>
+                      <div style={{ color: '#e2e8f0', fontWeight: '700', fontSize: '0.85rem', marginTop: '6px' }}>{c.label}</div>
+                      <div style={{ color: '#64748b', fontSize: '0.72rem', marginTop: '2px' }}>{c.sub}</div>
+                    </div>
+                  ))}
+                </div>
+                {stats.top_categories?.length > 0 && (
+                  <div style={{ marginTop: '14px', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                    <span style={{ color: '#94a3b8', fontSize: '0.78rem', fontWeight: '700' }}>En çok tıklanan:</span>
+                    {stats.top_categories.map(tc => (
+                      <span key={tc.name} style={{ fontSize: '0.75rem', fontWeight: '700', color: '#818cf8', background: 'rgba(99,102,241,0.12)', padding: '3px 10px', borderRadius: '7px' }}>
+                        {tc.name} · {tc.clicks}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Admin: Doğrudan Kaynak Ekleme */}
             <div style={{ background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '20px', padding: '1.75rem 2rem', marginBottom: '3rem' }}>
               <h2 style={{ margin: '0 0 1.5rem', color: 'white', fontSize: '1.3rem', fontWeight: '800' }}>➕ Yeni Onaylı Kaynak Ekle</h2>
@@ -184,17 +291,47 @@ export default function Admin() {
                   </div>
                 </div>
                 <div style={{ maxWidth: isMobile ? '100%' : '50%' }}>
-                  <label style={{ display: 'block', color: '#94a3b8', fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Kategori</label>
-                  <select
-                    value={addForm.category_id}
-                    onChange={e => setAddForm(f => ({ ...f, category_id: e.target.value }))}
-                    style={{ ...inputStyle, cursor: 'pointer' }}
-                  >
-                    <option value="">— Kategori seç —</option>
-                    {categories.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Kategori</label>
+                    <button
+                      type="button"
+                      onClick={() => { setShowNewCat(v => !v); setNewCatName(''); }}
+                      style={{ background: 'none', border: 'none', color: '#818cf8', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', padding: 0 }}
+                    >
+                      {showNewCat ? '← Mevcut seç' : '+ Yeni oluştur'}
+                    </button>
+                  </div>
+                  {showNewCat ? (
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        type="text"
+                        placeholder="Kategori adı"
+                        value={newCatName}
+                        onChange={e => setNewCatName(e.target.value)}
+                        style={{ ...inputStyle, flex: 1 }}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCreateCategory}
+                        disabled={creatingCat || !newCatName.trim()}
+                        style={{ padding: '10px 16px', borderRadius: '10px', border: 'none', background: creatingCat || !newCatName.trim() ? 'rgba(99,102,241,0.3)' : '#6366f1', color: 'white', fontWeight: '700', cursor: creatingCat || !newCatName.trim() ? 'not-allowed' : 'pointer', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+                      >
+                        {creatingCat ? '...' : 'Oluştur'}
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={addForm.category_id}
+                      onChange={e => setAddForm(f => ({ ...f, category_id: e.target.value }))}
+                      style={{ ...inputStyle, cursor: 'pointer' }}
+                    >
+                      <option value="">— Kategori seç —</option>
+                      {categories.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
                 <div>
                   <button
@@ -294,6 +431,44 @@ export default function Admin() {
                       {src.category && (
                         <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#818cf8', background: 'rgba(99,102,241,0.12)', padding: '3px 10px', borderRadius: '7px', flexShrink: 0 }}>{src.category}</span>
                       )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Kullanıcı Yönetimi */}
+            <div style={{ marginTop: '3rem' }}>
+              <h2 style={{ margin: '0 0 1.25rem', color: 'white', fontSize: '1.4rem', fontWeight: '800' }}>👥 Kullanıcılar ({users.length})</h2>
+              {users.length === 0 ? (
+                <div style={{ background: 'rgba(15,23,42,0.3)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '18px', padding: '2.5rem', textAlign: 'center' }}>
+                  <p style={{ color: '#475569', margin: 0 }}>Kullanıcı bulunamadı.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {users.map(u => (
+                    <div key={u.id} style={cardStyle}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <p style={{ margin: 0, color: 'white', fontWeight: '700', fontSize: '0.95rem' }}>{u.username}</p>
+                          {u.is_admin && (
+                            <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#818cf8', background: 'rgba(99,102,241,0.12)', padding: '2px 8px', borderRadius: '6px' }}>ADMIN</span>
+                          )}
+                        </div>
+                        <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: '0.8rem' }}>{u.email}</p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                        <button
+                          onClick={() => handleToggleAdmin(u.id)}
+                          disabled={userProcessing === u.id}
+                          style={{ padding: '8px 16px', borderRadius: '10px', border: 'none', background: 'rgba(99,102,241,0.15)', color: '#818cf8', fontWeight: '700', cursor: userProcessing === u.id ? 'not-allowed' : 'pointer', fontSize: '0.85rem', opacity: userProcessing === u.id ? 0.5 : 1 }}
+                        >{u.is_admin ? 'Adminliği al' : 'Admin yap'}</button>
+                        <button
+                          onClick={() => handleDeleteUser(u.id, u.username)}
+                          disabled={userProcessing === u.id}
+                          style={{ padding: '8px 16px', borderRadius: '10px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ef4444', fontWeight: '700', cursor: userProcessing === u.id ? 'not-allowed' : 'pointer', fontSize: '0.85rem', opacity: userProcessing === u.id ? 0.5 : 1 }}
+                        >Sil</button>
+                      </div>
                     </div>
                   ))}
                 </div>

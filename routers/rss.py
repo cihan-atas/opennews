@@ -118,6 +118,7 @@ def reject_source(source_id: int, db: db_dependency, current_user: user_dependen
 
 @router.get("/approved")
 def list_approved(db: db_dependency, current_user: user_dependency):
+    _require_admin(current_user)
     items = (
         db.query(models.CommunityRssSource)
         .filter(models.CommunityRssSource.status == "approved")

@@ -51,6 +51,38 @@ def get_embedding(text: str, task_type: str = "retrieval_document") -> list[floa
     return _embeddings.embed(text, task_type=task_type)
 
 
+def translate_cached(db, text: str, target_lang: str) -> str:
+    """Çeviriyi DB cache'inden döner; yoksa AI ile çevirip kaydeder.
+
+    Aynı metin + hedef dil tekrar geldiğinde AI çağrısı yapılmaz (hız + kota tasarrufu)."""
+    import hashlib
+    import services.ai as _ai
+    import models
+
+    source_hash = hashlib.md5(f"{text}|{target_lang}".encode("utf-8")).hexdigest()
+    cached = (
+        db.query(models.TranslationCache)
+        .filter(models.TranslationCache.source_hash == source_hash)
+        .first()
+    )
+    if cached:
+        return cached.translated_text
+
+    translated = _ai.translate(text, target_lang)
+
+    try:
+        db.add(models.TranslationCache(
+            source_hash=source_hash,
+            target_lang=target_lang,
+            translated_text=translated,
+        ))
+        db.commit()
+    except Exception:
+        # Eşzamanlı aynı çeviri (unique çakışması) veya yazma hatası → cache atla, çeviriyi yine de döndür.
+        db.rollback()
+    return translated
+
+
 def get_signed_audio_url(gcs_url: str, expiration_minutes: int = 60) -> str:
     """Depolanan ses URL'inden geçici erişim linki üretir."""
     return _storage.signed_url(gcs_url, expiration_minutes)

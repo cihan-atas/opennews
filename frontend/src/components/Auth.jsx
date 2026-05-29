@@ -46,6 +46,7 @@ function Auth() {
             headers: { 'Authorization': `Bearer ${data.access_token}` }
           });
           const userData = await userResponse.json();
+          localStorage.setItem('user', JSON.stringify(userData));
 
           if (userData.interests && userData.interests.length > 0) {
             navigate('/home');

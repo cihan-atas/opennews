@@ -9,6 +9,7 @@ import { useToast, Toast } from '../components/Toast';
 import NewsDetailModal from '../components/NewsDetailModal';
 import { radius } from '../theme';
 import { useTheme } from '../contexts/ThemeContext';
+import { usePlayer } from '../contexts/PlayerContext';
 
 const PAGE_SIZE = 10;
 
@@ -16,6 +17,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { toast, showToast } = useToast();
   const { colors } = useTheme();
+  const { setTrack } = usePlayer();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [newsList, setNewsList] = useState([]);
@@ -30,8 +32,11 @@ export default function HomeScreen() {
   const [selectedId, setSelectedId] = useState(null);
   const [suggestion, setSuggestion] = useState(null);
 
+  const [bulletinLoading, setBulletinLoading] = useState(false);
+
   const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
   const refreshPoll = useRef(null);
+  const bulletinPoll = useRef(null);
 
   const fetchNews = useCallback(async (query, p, catId) => {
     setLoading(true);
@@ -71,11 +76,60 @@ export default function HomeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, activeCategoryId]);
 
-  useEffect(() => () => { if (refreshPoll.current) clearInterval(refreshPoll.current); }, []);
+  useEffect(() => () => {
+    if (refreshPoll.current) clearInterval(refreshPoll.current);
+    if (bulletinPoll.current) clearInterval(bulletinPoll.current);
+  }, []);
 
   const handleSearch = () => { setPage(1); fetchNews(search, 1, activeCategoryId); };
 
   const handleCategory = (catId) => { setActiveCategoryId(catId); setPage(1); };
+
+  const handleBulletin = async () => {
+    if (bulletinLoading) return;
+    setBulletinLoading(true);
+    showToast('🎙️ Günlük bülten hazırlanıyor…');
+    try {
+      const payload = { limit: 5 };
+      if (activeCategoryId && activeCategoryId !== 0) payload.category_id = activeCategoryId;
+      const res = await apiFetch('/news/bulletin', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.detail || 'Bülten oluşturulamadı.', 'error');
+        setBulletinLoading(false);
+        return;
+      }
+      const { title } = await res.json();
+      let tries = 0;
+      if (bulletinPoll.current) clearInterval(bulletinPoll.current);
+      bulletinPoll.current = setInterval(async () => {
+        tries += 1;
+        try {
+          const check = await apiFetch(`/news/bulletin/check?title=${encodeURIComponent(title)}`);
+          if (check.ok) {
+            const pod = await check.json();
+            clearInterval(bulletinPoll.current);
+            bulletinPoll.current = null;
+            setBulletinLoading(false);
+            setTrack(pod.audio_url, pod.title, 'Günlük Bülten', true, pod.id);
+            showToast('✅ Bülten hazır, oynatılıyor!');
+          }
+        } catch (_) {}
+        if (tries >= 90) {
+          clearInterval(bulletinPoll.current);
+          bulletinPoll.current = null;
+          setBulletinLoading(false);
+          showToast('Bülten beklenenden uzun sürdü; Podcast sekmesinden bakın.', 'error');
+        }
+      }, 2000);
+    } catch (_) {
+      setBulletinLoading(false);
+      showToast('Bülten oluşturulamadı.', 'error');
+    }
+  };
 
   const handleRefresh = async () => {
     if (refreshing) return;
@@ -159,6 +213,12 @@ export default function HomeScreen() {
           <Text style={{ color: colors.textMuted, fontSize: 18 }}>{refreshing ? '…' : '↻'}</Text>
         </Pressable>
       </View>
+
+      <Pressable onPress={handleBulletin} disabled={bulletinLoading} style={styles.bulletinBtn}>
+        <Text style={styles.bulletinBtnText}>
+          {bulletinLoading ? '🎙️  Bülten hazırlanıyor…' : '🎙️  Günlük Bülten Oluştur'}
+        </Text>
+      </Pressable>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 18 }} contentContainerStyle={{ gap: 8 }}>
         {categories.map((cat) => {
@@ -268,6 +328,11 @@ const makeStyles = (colors) => StyleSheet.create({
     width: 48, height: 48, borderRadius: 24, borderWidth: 1, borderColor: colors.border,
     backgroundColor: 'rgba(30,41,59,0.5)', alignItems: 'center', justifyContent: 'center',
   },
+  bulletinBtn: {
+    marginBottom: 18, paddingVertical: 13, borderRadius: radius.md, borderWidth: 1,
+    borderColor: colors.primaryLight, backgroundColor: colors.primarySoft, alignItems: 'center',
+  },
+  bulletinBtnText: { color: colors.primaryLight, fontWeight: '800', fontSize: 14 },
   chip: { paddingVertical: 10, paddingHorizontal: 18, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
   chipActive: { borderColor: colors.primaryLight, backgroundColor: colors.primarySoft },
   trendLabel: { color: colors.warning, fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 },

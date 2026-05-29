@@ -27,25 +27,26 @@ export const fetchWithAuth = async (url, options = {}) => {
         credentials: 'include' 
       });
 
-      if (refreshResponse.ok) {
-        const data = await refreshResponse.json();
-        
+      const data = refreshResponse.ok ? await refreshResponse.json().catch(() => null) : null;
+
+      if (data && data.access_token) {
         // 4. Yeni bileti cebimize (localStorage) koyuyoruz
         localStorage.setItem('token', data.access_token);
-        
+
         // 5. Başarısız olan o ilk isteği, YENİ biletle güncelleyip TEKRAR ATIYORUZ
         headers['Authorization'] = `Bearer ${data.access_token}`;
         response = await fetch(url, { ...options, headers });
-        
+
       } else {
-        // Eğer Refresh Token da ölmüşse (örneğin 7 gün geçmişse)[cite: 1], 
-        // artık mecburen kullanıcıyı dışarı atıyoruz.
+        // Refresh başarısız (ölü token, 5xx veya gövdede access_token yok) → kullanıcıyı çıkışa al.
         localStorage.removeItem('token');
-        window.location.href = '/auth'; 
+        localStorage.removeItem('user');
+        window.location.href = '/auth';
       }
     } catch (error) {
       console.error("Token yenileme hatası:", error);
       localStorage.removeItem('token');
+      localStorage.removeItem('user');
       window.location.href = '/auth';
     }
   }

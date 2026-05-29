@@ -185,7 +185,7 @@ def logout(request: Request, response: Response, db: db_dependency, refresh_toke
     response.delete_cookie(
         key="refresh_token",
         httponly=True,
-        secure=False,  # set_cookie'deki değerin aynısı   #Burak konuşuyor: Lokalde çalıştığımdan tarayıcı kabul etmiyor o yüzden kabul etsin diye false yapıyorum. Sonradan değiştirebilirsiniz asıl çalışmaya geçince.
+        secure=True,  # set_cookie ile aynı olmalı; aksi halde tarayıcı (HTTPS'te) silme isteğini reddeder ve cookie kalır.
         samesite="lax" # set_cookie'deki değerin aynısı
     )
 

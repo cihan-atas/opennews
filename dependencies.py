@@ -53,3 +53,13 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: db
 
 # Tip belirtimi için kolaylık
 user_dependency = Annotated[models.User, Depends(get_current_user)]
+
+
+# 4. Admin bağımlılığı: giriş yapmış kullanıcının admin olmasını zorunlu kılar.
+async def get_current_admin(current_user: user_dependency):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Bu işlem için admin yetkisi gerekiyor.")
+    return current_user
+
+admin_dependency = Annotated[models.User, Depends(get_current_admin)]

@@ -81,20 +81,22 @@ function ActivePlayer({ track, onClose }) {
   const playing = status?.playing;
   const progress = duration ? Math.min(100, (currentTime / duration) * 100) : 0;
 
-  const togglePlay = () => { playing ? player.pause() : player.play(); };
+  // Geçersiz/erişilemeyen ses URL'lerinde native player çağrıları exception atabilir;
+  // sarmalayarak uygulamanın çökmesini engelliyoruz.
+  const togglePlay = () => { try { playing ? player.pause() : player.play(); } catch (_) {} };
   const skip = (secs) => {
     const target = Math.max(0, duration ? Math.min(duration, currentTime + secs) : currentTime + secs);
-    player.seekTo(target);
+    try { player.seekTo(target); } catch (_) {}
   };
   const cycleSpeed = () => {
     const next = (speedIdx + 1) % SPEEDS.length;
     setSpeedIdx(next);
-    player.setPlaybackRate(SPEEDS[next]);
+    try { player.setPlaybackRate(SPEEDS[next]); } catch (_) {}
   };
   const toggleMute = () => {
     const next = !isMuted;
     setIsMuted(next);
-    player.muted = next;
+    try { player.muted = next; } catch (_) {}
   };
   const close = () => { try { player.pause(); } catch (_) {} onClose(); };
 

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { fetchWithAuth } from './Utils/api';
 import Sidebar from './components/Sidebar';
 import { useWindowSize } from './Utils/useWindowSize';
 import Home from './components/Home';
@@ -28,6 +29,43 @@ function PublicRoute({ children }) {
   if (token) {
     return <Navigate to="/home" replace />;
   }
+  return children;
+}
+
+// Admin-only rota koruması. Önce localStorage'daki kullanıcıyı hızlıca okur, ardından
+// /users/me ile backend'den doğrular (yetkili kaynak). Admin değilse /home'a yönlendirir.
+function AdminRoute({ children }) {
+  const cached = (() => {
+    try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
+  })();
+  // null = doğrulanıyor, true/false = sonuç
+  const [allowed, setAllowed] = useState(cached?.is_admin === true ? true : null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/users/me`);
+        if (!res.ok) throw new Error('unauth');
+        const data = await res.json();
+        localStorage.setItem('user', JSON.stringify(data));
+        if (!cancelled) setAllowed(!!data.is_admin);
+      } catch {
+        if (!cancelled) setAllowed(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (allowed === null) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: '60vh', color: 'var(--muted, #94a3b8)' }}>
+        Yetki kontrol ediliyor…
+      </div>
+    );
+  }
+  if (!allowed) return <Navigate to="/home" replace />;
   return children;
 }
 
@@ -75,7 +113,7 @@ function AppLayout() {
           <Routes>
             <Route path="/home" element={<Home />} />
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/admin" element={<Admin />} />
+            <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
             <Route path="/podcasts" element={<Podcast />} />
             <Route path="/bookmarks" element={<Bookmarks />} />
             <Route path="/rss-reader" element={<RssReader />} />

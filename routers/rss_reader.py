@@ -197,10 +197,11 @@ def get_articles(list_id: int, db: db_dependency, current_user: user_dependency)
 # ── RSS Podcast ────────────────────────────────────────────────────────────────
 
 @router.post("/translate")
-def translate_rss_article(body: RssTranslateRequest, current_user: user_dependency):
+def translate_rss_article(body: RssTranslateRequest, db: db_dependency, current_user: user_dependency):
     if body.lang not in ("en", "tr"):
         raise HTTPException(status_code=400, detail="lang must be 'en' or 'tr'")
-    translated = ai_service.translate(body.text[:3000], body.lang)
+    from utils import translate_cached
+    translated = translate_cached(db, body.text[:3000], body.lang)
     return {"translated": translated, "lang": body.lang}
 
 
