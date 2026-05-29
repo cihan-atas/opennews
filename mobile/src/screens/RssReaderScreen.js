@@ -49,8 +49,12 @@ export default function RssReaderScreen() {
   const [showCommunity, setShowCommunity] = useState(false);
   const [communityFeeds, setCommunityFeeds] = useState([]);
   const [communityLoading, setCommunityLoading] = useState(false);
+  const [communityFilter, setCommunityFilter] = useState('');
   const [submitUrl, setSubmitUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Liste seçici
+  const [listPickerFeed, setListPickerFeed] = useState(null); // { url, title }
+  const [addingToListId, setAddingToListId] = useState(null);
 
   const [showSaved, setShowSaved] = useState(false);
   const [savedArticles, setSavedArticles] = useState([]);
@@ -230,23 +234,35 @@ export default function RssReaderScreen() {
     finally { setSubmitting(false); }
   };
 
-  const handleAddFromCommunity = async (url) => {
-    if (!selectedList) { showToast('Önce bir liste seç!', 'error'); return; }
+  const handleAddFromCommunity = (url, title) => {
+    if (selectedList) {
+      addFeedToList(selectedList.id, url);
+    } else {
+      setListPickerFeed({ url, title });
+    }
+  };
+
+  const addFeedToList = async (listId, url) => {
+    setAddingToListId(listId);
     try {
-      const res = await apiFetch(`/rss-reader/lists/${selectedList.id}/feeds`, {
+      const res = await apiFetch(`/rss-reader/lists/${listId}/feeds`, {
         method: 'POST', body: JSON.stringify({ url }),
       });
       if (res.ok) {
         const feed = await res.json();
-        const updated = { ...selectedList, feeds: [...(selectedList.feeds || []), feed], feed_count: (selectedList.feed_count || 0) + 1 };
-        setSelectedList(updated);
-        setLists((p) => p.map((l) => (l.id === selectedList.id ? updated : l)));
-        showToast('Kaynak listenize eklendi!');
-        loadArticles(selectedList.id);
+        if (selectedList?.id === listId) {
+          const updated = { ...selectedList, feeds: [...(selectedList.feeds || []), feed], feed_count: (selectedList.feed_count || 0) + 1 };
+          setSelectedList(updated);
+          setLists((p) => p.map((l) => (l.id === listId ? updated : l)));
+          loadArticles(listId);
+        }
+        showToast('Kaynak listeye eklendi!');
+        setListPickerFeed(null);
       } else {
         showToast((await res.json()).detail || 'Eklenemedi.', 'error');
       }
     } catch (_) { showToast('Bağlantı hatası.', 'error'); }
+    finally { setAddingToListId(null); }
   };
 
   const openArticle = (article) => {
@@ -288,7 +304,7 @@ export default function RssReaderScreen() {
       if (data.status === 'exists') {
         setPodcastStatus('ready');
         setPodcastCache((p) => ({ ...p, [selectedArticle.title]: data.audio_url }));
-        setTrack(data.audio_url, selectedArticle.title, selectedArticle.feed_title, true);
+        setTrack(data.audio_url, selectedArticle.title, selectedArticle.feed_title, true, data.podcast_id);
       } else {
         setPodcastStatus('processing');
         pollTitleRef.current = selectedArticle.title;
@@ -306,7 +322,7 @@ export default function RssReaderScreen() {
           const data = await res.json();
           clearInterval(pollRef.current); pollRef.current = null;
           setPodcastCache((p) => ({ ...p, [title]: data.audio_url }));
-          setTrack(data.audio_url, title, feedTitle, true);
+          setTrack(data.audio_url, title, feedTitle, true, data.podcast_id);
           if (pollTitleRef.current === title) setPodcastStatus('ready');
           showToast('Podcast hazır! 🎧');
         }
@@ -531,18 +547,44 @@ export default function RssReaderScreen() {
               ) : communityFeeds.length === 0 ? (
                 <Text style={{ color: colors.textFaint, textAlign: 'center', marginTop: 24 }}>Henüz onaylı kaynak yok.</Text>
               ) : (
-                communityFeeds.map((feed) => (
-                  <View key={feed.id} style={styles.feedRow}>
-                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: feedColor(feed.url), flexShrink: 0 }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: colors.white, fontWeight: '600', fontSize: 12 }} numberOfLines={1}>{feed.url}</Text>
-                      {!!feed.category && <Text style={{ color: colors.primaryLight, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{feed.category}</Text>}
-                    </View>
-                    <Pressable onPress={() => handleAddFromCommunity(feed.url)} style={[styles.removeFeedBtn, { borderColor: 'rgba(99,102,241,0.3)' }]}>
-                      <Text style={{ color: colors.primaryLight, fontSize: 12, fontWeight: '700' }}>+ Ekle</Text>
-                    </Pressable>
-                  </View>
-                ))
+                <>
+                  {/* Kategori filtre butonları */}
+                  {(() => {
+                    const cats = [...new Set(communityFeeds.map(f => f.category).filter(Boolean))];
+                    return cats.length > 0 ? (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                        <View style={{ flexDirection: 'row', gap: 6, paddingVertical: 2 }}>
+                          <Pressable onPress={() => setCommunityFilter('')} style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: !communityFilter ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)' }}>
+                            <Text style={{ color: !communityFilter ? colors.primaryLight : colors.textDim, fontSize: 11, fontWeight: '800' }}>Tümü</Text>
+                          </Pressable>
+                          {cats.map(cat => (
+                            <Pressable key={cat} onPress={() => setCommunityFilter(communityFilter === cat ? '' : cat)} style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: communityFilter === cat ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)' }}>
+                              <Text style={{ color: communityFilter === cat ? colors.primaryLight : colors.textDim, fontSize: 11, fontWeight: '800' }}>{cat}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      </ScrollView>
+                    ) : null;
+                  })()}
+                  {communityFeeds
+                    .filter(f => !communityFilter || f.category === communityFilter)
+                    .map((feed) => (
+                      <View key={feed.id} style={styles.feedRow}>
+                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: feedColor(feed.url), flexShrink: 0, marginTop: 4 }} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.white, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
+                            {feed.title || feed.url}
+                          </Text>
+                          {!!feed.title && <Text style={{ color: colors.textDim, fontSize: 10, marginTop: 1 }} numberOfLines={1}>{feed.url}</Text>}
+                          {!!feed.category && <Text style={{ color: colors.primaryLight, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{feed.category}</Text>}
+                        </View>
+                        <Pressable onPress={() => handleAddFromCommunity(feed.url, feed.title || feed.url)} style={[styles.removeFeedBtn, { borderColor: 'rgba(99,102,241,0.3)' }]}>
+                          <Text style={{ color: colors.primaryLight, fontSize: 12, fontWeight: '700' }}>+ Ekle</Text>
+                        </Pressable>
+                      </View>
+                    ))
+                  }
+                </>
               )}
 
               <View style={{ borderTopWidth: 1, borderTopColor: colors.borderSoft, marginTop: 16, paddingTop: 16 }}>
@@ -564,6 +606,36 @@ export default function RssReaderScreen() {
               </View>
               <View style={{ height: 20 }} />
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Liste Seçici Modal */}
+      <Modal visible={!!listPickerFeed} transparent animationType="slide" onRequestClose={() => setListPickerFeed(null)}>
+        <View style={styles.sheetOverlay}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>📋 Hangi Listeye Ekleyelim?</Text>
+              <Pressable onPress={() => setListPickerFeed(null)} hitSlop={12}><Text style={{ color: colors.textDim, fontSize: 20 }}>✕</Text></Pressable>
+            </View>
+            {listPickerFeed && <Text style={{ color: colors.textDim, fontSize: 11, marginBottom: 12 }} numberOfLines={1}>{listPickerFeed.title}</Text>}
+            {lists.length === 0 ? (
+              <Text style={{ color: colors.textFaint, textAlign: 'center', paddingVertical: 24 }}>Önce bir liste oluşturman gerekiyor.</Text>
+            ) : (
+              <ScrollView>
+                {lists.map(list => (
+                  <Pressable
+                    key={list.id}
+                    disabled={addingToListId === list.id}
+                    onPress={() => addFeedToList(list.id, listPickerFeed.url)}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, marginBottom: 8, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(99,102,241,0.2)', backgroundColor: addingToListId === list.id ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.07)', opacity: addingToListId && addingToListId !== list.id ? 0.5 : 1 }}
+                  >
+                    <Text style={{ color: colors.white, fontWeight: '600' }}>{list.name}</Text>
+                    {list.feed_count != null && <Text style={{ color: colors.textDim, fontSize: 12 }}>{list.feed_count} kaynak</Text>}
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
           </View>
         </View>
       </Modal>

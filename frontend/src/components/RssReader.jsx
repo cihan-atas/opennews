@@ -43,8 +43,12 @@ function RssReader() {
   const [leftTab, setLeftTab] = useState('mine'); // 'mine' | 'community' | 'saved'
   const [communityFeeds, setCommunityFeeds] = useState([]);
   const [communityLoading, setCommunityLoading] = useState(false);
+  const [communityFilter, setCommunityFilter] = useState(''); // kategori filtresi
   const [submitUrl, setSubmitUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Liste seçici modal (community feed eklerken)
+  const [listPickerFeed, setListPickerFeed] = useState(null); // { url, title }
+  const [addingToList, setAddingToList] = useState(null); // list id
 
   // Saved articles
   const [savedIds, setSavedIds] = useState({}); // { link: savedId }
@@ -80,7 +84,7 @@ function RssReader() {
           setAudioUrl(data.audio_url);
           setPodcastStatus('ready');
           setPodcastCache(prev => ({ ...prev, [podcastPollTitle]: data.audio_url }));
-          setTrack(data.audio_url, podcastPollTitle, selectedArticle?.feed_title);
+          setTrack(data.audio_url, podcastPollTitle, selectedArticle?.feed_title, true, data.podcast_id);
           showToast('Podcast hazır! 🎧', 'success');
         }
       } catch {}
@@ -302,25 +306,42 @@ function RssReader() {
     finally { setSubmitting(false); }
   };
 
-  const handleAddFromCommunity = async (url) => {
-    if (!selectedList) { showToast('Önce soldaki panelden bir liste seç!', 'error'); return; }
+  const handleAddFromCommunity = (url, title) => {
+    if (selectedList) {
+      // Liste zaten seçiliyse doğrudan ekle
+      addFeedToList(selectedList.id, url);
+    } else {
+      // Liste seçilmediyse picker aç
+      setListPickerFeed({ url, title });
+    }
+  };
+
+  const addFeedToList = async (listId, url) => {
+    setAddingToList(listId);
     try {
-      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss-reader/lists/${selectedList.id}/feeds`, {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss-reader/lists/${listId}/feeds`, {
         method: 'POST',
         body: JSON.stringify({ url }),
       });
       if (res.ok) {
         const feed = await res.json();
-        const updatedList = { ...selectedList, feeds: [...(selectedList.feeds || []), feed], feed_count: (selectedList.feed_count || 0) + 1 };
-        setSelectedList(updatedList);
-        setLists(prev => prev.map(l => l.id === selectedList.id ? updatedList : l));
-        showToast('Kaynak listenize eklendi!', 'success');
-        loadArticles(selectedList.id);
+        if (selectedList?.id === listId) {
+          const updatedList = { ...selectedList, feeds: [...(selectedList.feeds || []), feed], feed_count: (selectedList.feed_count || 0) + 1 };
+          setSelectedList(updatedList);
+          setLists(prev => prev.map(l => l.id === listId ? updatedList : l));
+          loadArticles(listId);
+        }
+        showToast('Kaynak listeye eklendi!', 'success');
+        setListPickerFeed(null);
       } else {
         const err = await res.json();
         showToast(err.detail || 'Eklenemedi.', 'error');
       }
-    } catch (_) { showToast('Bağlantı hatası.', 'error'); }
+    } catch (_) {
+      showToast('Bağlantı hatası.', 'error');
+    } finally {
+      setAddingToList(null);
+    }
   };
 
   const handleArticleClick = (article) => {
@@ -373,7 +394,7 @@ function RssReader() {
         setAudioUrl(data.audio_url);
         setPodcastStatus('ready');
         setPodcastCache(prev => ({ ...prev, [selectedArticle.title]: data.audio_url }));
-        setTrack(data.audio_url, selectedArticle.title, selectedArticle.feed_title, true);
+        setTrack(data.audio_url, selectedArticle.title, selectedArticle.feed_title, true, data.podcast_id);
       } else {
         setPodcastStatus('processing');
         setPodcastPollTitle(selectedArticle.title);
@@ -567,23 +588,52 @@ function RssReader() {
             ) : communityFeeds.length === 0 ? (
               <p style={{ color: '#475569', fontSize: '0.82rem', textAlign: 'center', marginTop: '1.5rem', lineHeight: '1.6' }}>Henüz onaylı kaynak yok.</p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '1.25rem' }}>
-                {communityFeeds.map(feed => (
-                  <div key={feed.id} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '10px 12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                      <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: feedColor(feed.url), flexShrink: 0 }} />
-                      <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: '600', color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{feed.url}</p>
+              <>
+                {/* Kategori filtre butonları */}
+                {(() => {
+                  const cats = [...new Set(communityFeeds.map(f => f.category).filter(Boolean))];
+                  return cats.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+                      <button
+                        onClick={() => setCommunityFilter('')}
+                        style={{ fontSize: '0.68rem', fontWeight: '800', padding: '3px 9px', borderRadius: '6px', border: 'none', cursor: 'pointer', background: !communityFilter ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)', color: !communityFilter ? '#818cf8' : '#64748b', transition: '0.2s' }}
+                      >Tümü</button>
+                      {cats.map(cat => (
+                        <button
+                          key={cat}
+                          onClick={() => setCommunityFilter(communityFilter === cat ? '' : cat)}
+                          style={{ fontSize: '0.68rem', fontWeight: '800', padding: '3px 9px', borderRadius: '6px', border: 'none', cursor: 'pointer', background: communityFilter === cat ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)', color: communityFilter === cat ? '#818cf8' : '#64748b', transition: '0.2s' }}
+                        >{cat}</button>
+                      ))}
                     </div>
-                    {feed.category && (
-                      <span style={{ fontSize: '0.62rem', fontWeight: '800', color: '#818cf8', background: 'rgba(99,102,241,0.12)', padding: '2px 7px', borderRadius: '5px', display: 'inline-block', marginBottom: '6px' }}>{feed.category}</span>
-                    )}
-                    <button
-                      onClick={() => handleAddFromCommunity(feed.url)}
-                      style={{ ...s.btn('primary'), fontSize: '0.72rem', padding: '6px 12px', width: '100%', marginTop: '2px' }}
-                    >+ Listeme Ekle</button>
-                  </div>
-                ))}
-              </div>
+                  ) : null;
+                })()}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '1.25rem' }}>
+                  {communityFeeds
+                    .filter(f => !communityFilter || f.category === communityFilter)
+                    .map(feed => (
+                      <div key={feed.id} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '10px 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: feedColor(feed.url), flexShrink: 0 }} />
+                          <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: '700', color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                            {feed.title || feed.url}
+                          </p>
+                        </div>
+                        {feed.title && (
+                          <p style={{ margin: '0 0 4px 12px', fontSize: '0.7rem', color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{feed.url}</p>
+                        )}
+                        {feed.category && (
+                          <span style={{ fontSize: '0.62rem', fontWeight: '800', color: '#818cf8', background: 'rgba(99,102,241,0.12)', padding: '2px 7px', borderRadius: '5px', display: 'inline-block', marginBottom: '6px', marginLeft: '12px' }}>{feed.category}</span>
+                        )}
+                        <button
+                          onClick={() => handleAddFromCommunity(feed.url, feed.title || feed.url)}
+                          style={{ ...s.btn('primary'), fontSize: '0.72rem', padding: '6px 12px', width: '100%', marginTop: '2px' }}
+                        >+ Listeme Ekle</button>
+                      </div>
+                    ))}
+                </div>
+              </>
             )}
 
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
@@ -900,6 +950,45 @@ function RssReader() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Liste Seçici Modal — community feed eklerken liste seçilmediyse */}
+      {listPickerFeed && (
+        <div
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(2,6,23,0.85)', backdropFilter: 'blur(12px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}
+          onClick={() => setListPickerFeed(null)}
+        >
+          <div
+            style={{ background: 'rgba(15,23,42,0.97)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '24px', padding: '2rem', width: '90%', maxWidth: '440px', boxShadow: '0 30px 60px rgba(0,0,0,0.5)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ color: 'white', fontSize: '1.2rem', fontWeight: '800', marginTop: 0, marginBottom: '6px' }}>Listeye Ekle</h3>
+            <p style={{ color: '#64748b', fontSize: '0.82rem', marginBottom: '1.25rem', wordBreak: 'break-all' }}>{listPickerFeed.title}</p>
+            {lists.length === 0 ? (
+              <p style={{ color: '#475569', textAlign: 'center', padding: '1rem 0' }}>Önce bir liste oluşturman gerekiyor.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+                {lists.map(list => (
+                  <button
+                    key={list.id}
+                    disabled={addingToList === list.id}
+                    onClick={() => addFeedToList(list.id, listPickerFeed.url)}
+                    style={{ padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(99,102,241,0.2)', background: addingToList === list.id ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.07)', color: 'white', fontWeight: '600', cursor: addingToList === list.id ? 'not-allowed' : 'pointer', textAlign: 'left', fontSize: '0.9rem', transition: '0.2s' }}
+                    onMouseOver={e => { if (!addingToList) e.currentTarget.style.background = 'rgba(99,102,241,0.18)'; }}
+                    onMouseOut={e => { if (!addingToList) e.currentTarget.style.background = 'rgba(99,102,241,0.07)'; }}
+                  >
+                    📋 {list.name}
+                    {list.feed_count != null && <span style={{ color: '#475569', fontSize: '0.78rem', marginLeft: '8px' }}>{list.feed_count} kaynak</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => setListPickerFeed(null)}
+              style={{ marginTop: '1rem', width: '100%', padding: '10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontWeight: '600' }}
+            >İptal</button>
           </div>
         </div>
       )}

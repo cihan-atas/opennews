@@ -35,11 +35,11 @@ class UserCreate(UserBase):
 # şifreyi gizleyip ID gibi otomatik oluşan alanları ekliyoruz.
 class UserOut(UserBase):
     id: int
-    username: str 
-    interests: List[CategoryOut] = []  # # Kullanıcının ilgi duyduğu kategorileri bir liste olarak ekliyoruz
+    username: str
+    is_admin: bool = False
+    interests: List[CategoryOut] = []
 
     class Config:
-        # SQLAlchemy modellerini (class objelerini) Pydantic'in anlayacağı sözlük (dict) yapısına otomatik çevirir.
         from_attributes = True
 
 # 5. Kullanıcı İlgi Alanları Güncelleme Şeması
