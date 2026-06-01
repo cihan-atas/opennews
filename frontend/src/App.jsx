@@ -7,8 +7,10 @@ import Home from './components/Home';
 import Podcast from './components/Podcast';
 import Settings from './components/Settings';
 import Auth from './components/Auth';
+import ResetPassword from './components/ResetPassword';
 import Onboarding from './components/Onboarding';
 import Bookmarks from './components/Bookmarks';
+import ReadLater from './components/ReadLater';
 import RssReader from './components/RssReader';
 import Dashboard from './components/Dashboard';
 import Admin from './components/Admin';
@@ -70,7 +72,7 @@ function AdminRoute({ children }) {
 }
 
 function GlobalPlayer() {
-  const { track, clearTrack } = usePlayer();
+  const { track, clearTrack, playNext, playPrev, hasNext, hasPrev } = usePlayer();
   const navigate = useNavigate();
   const { isMobile } = useWindowSize();
   if (!track) return null;
@@ -82,6 +84,9 @@ function GlobalPlayer() {
       podcastId={track.podcastId}
       onClose={clearTrack}
       onNavigate={() => navigate('/podcasts')}
+      onNext={hasNext ? playNext : undefined}
+      onPrev={hasPrev ? playPrev : undefined}
+      onEnded={hasNext ? playNext : undefined}
       floating
       autoPlay={track.autoPlay}
       isMobile={isMobile}
@@ -116,6 +121,7 @@ function AppLayout() {
             <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
             <Route path="/podcasts" element={<Podcast />} />
             <Route path="/bookmarks" element={<Bookmarks />} />
+            <Route path="/read-later" element={<ReadLater />} />
             <Route path="/rss-reader" element={<RssReader />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/home" replace />} />
@@ -142,6 +148,7 @@ function App() {
               </PublicRoute>
             }
           />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route 
             path="/onboarding" 
             element={

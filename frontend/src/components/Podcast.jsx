@@ -14,7 +14,20 @@ function Podcast() {
   const { isMobile } = useWindowSize();
   
   // 🎯 UTKU: Cihan'ın Context yapısı (track nesnesi ve setTrack fonksiyonu)
-  const { track, setTrack, clearTrack } = usePlayer();
+  const { track, setTrack, setQueue, clearTrack } = usePlayer();
+
+  // Bu sayfadaki tüm podcast'leri sıralı kuyruğa alıp ilkinden başlat.
+  const handlePlayAll = () => {
+    if (podcasts.length === 0) return;
+    const tracks = podcasts.map((pod) => ({
+      src: pod.audio_url,
+      title: pod.title,
+      category: pod.news_id ? 'Akış' : 'RSS',
+      podcastId: pod.id,
+    }));
+    setQueue(tracks, 0);
+    showToast(`${tracks.length} podcast sırayla çalınıyor...`, 'success');
+  };
 
   // --- MODERN BİLDİRİM SİSTEMİ (TOAST) ---
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
@@ -159,6 +172,16 @@ function Podcast() {
           Podcast Kütüphanem
         </h1>
         <p style={{ color: '#94a3b8', fontSize: '1.1rem', marginTop: '10px' }}>Yapay zeka ile üretilen kişisel ses dosyaların.</p>
+        {podcasts.length > 1 && (
+          <button
+            onClick={handlePlayAll}
+            style={{ marginTop: '20px', display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '14px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 6px 16px rgba(99,102,241,0.25)', transition: '0.2s' }}
+            onMouseOver={e => e.currentTarget.style.transform = 'scale(1.03)'}
+            onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
+          >
+            ▶ Tümünü Sırayla Çal
+          </button>
+        )}
       </div>
 
       <div style={{ maxWidth: '1100px', margin: '0 auto', padding: isMobile ? '0 1rem' : '0 3rem' }}>

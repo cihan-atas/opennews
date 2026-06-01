@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast, Toast } from '../components/Toast';
 import { radius } from '../theme';
 import { useTheme } from '../contexts/ThemeContext';
+import { apiFetch } from '../api/client';
 
 export default function AuthScreen() {
   const { login, register } = useAuth();
@@ -14,6 +15,7 @@ export default function AuthScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [isLogin, setIsLogin] = useState(true);
+  const [isForgot, setIsForgot] = useState(false);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,7 +25,17 @@ export default function AuthScreen() {
     if (busy) return;
     setBusy(true);
     try {
-      if (isLogin) {
+      if (isForgot) {
+        const res = await apiFetch('/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim() }),
+        });
+        if (!res.ok) throw new Error('İstek gönderilemedi.');
+        showToast('Eğer e-posta kayıtlıysa sıfırlama bağlantısı gönderildi.', 'success');
+        setIsForgot(false);
+        setIsLogin(true);
+      } else if (isLogin) {
         // RootNavigator, login sonrası interests durumuna göre otomatik yönlendirir.
         await login(username.trim(), password);
       } else {
@@ -42,24 +54,30 @@ export default function AuthScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <View style={styles.card}>
-            <Text style={styles.title}>{isLogin ? 'Hoş Geldiniz' : 'Aramıza Katıl'}</Text>
+            <Text style={styles.title}>{isForgot ? 'Şifreni Sıfırla' : isLogin ? 'Hoş Geldiniz' : 'Aramıza Katıl'}</Text>
             <Text style={styles.subtitle}>
-              {isLogin
+              {isForgot
+                ? 'Kayıtlı e-postanı gir, sıfırlama bağlantısını gönderelim'
+                : isLogin
                 ? 'Kişiselleştirilmiş haber bültenin ve podcastlerin burada'
                 : 'Kişisel haber akışını oluşturmaya başla'}
             </Text>
 
-            <Text style={styles.label}>Kullanıcı Adı{isLogin ? ' veya E-posta' : ''}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={isLogin ? 'Kullanıcı adın' : 'Yeni kullanıcı adın'}
-              placeholderTextColor={colors.textFaint}
-              autoCapitalize="none"
-              value={username}
-              onChangeText={setUsername}
-            />
+            {!isForgot && (
+              <>
+                <Text style={styles.label}>Kullanıcı Adı{isLogin ? ' veya E-posta' : ''}</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={isLogin ? 'Kullanıcı adın' : 'Yeni kullanıcı adın'}
+                  placeholderTextColor={colors.textFaint}
+                  autoCapitalize="none"
+                  value={username}
+                  onChangeText={setUsername}
+                />
+              </>
+            )}
 
-            {!isLogin && (
+            {(!isLogin || isForgot) && (
               <>
                 <Text style={styles.label}>E-posta Adresi</Text>
                 <TextInput
@@ -74,15 +92,25 @@ export default function AuthScreen() {
               </>
             )}
 
-            <Text style={styles.label}>Şifre</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="••••••••"
-              placeholderTextColor={colors.textFaint}
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
+            {!isForgot && (
+              <>
+                <Text style={styles.label}>Şifre</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="••••••••"
+                  placeholderTextColor={colors.textFaint}
+                  secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
+                />
+              </>
+            )}
+
+            {isLogin && !isForgot && (
+              <Pressable onPress={() => setIsForgot(true)} style={{ alignSelf: 'flex-end', marginTop: 12 }}>
+                <Text style={styles.switchLink}>Şifremi unuttum?</Text>
+              </Pressable>
+            )}
 
             <Pressable
               onPress={handleSubmit}
@@ -90,18 +118,26 @@ export default function AuthScreen() {
               style={({ pressed }) => [styles.button, (busy || pressed) && { opacity: 0.85 }]}
             >
               <Text style={styles.buttonText}>
-                {busy ? 'Lütfen bekle…' : isLogin ? 'Giriş Yap' : 'Kayıt Ol'}
+                {busy ? 'Lütfen bekle…' : isForgot ? 'Bağlantı Gönder' : isLogin ? 'Giriş Yap' : 'Kayıt Ol'}
               </Text>
             </Pressable>
 
-            <View style={styles.switchRow}>
-              <Text style={{ color: colors.textMuted }}>
-                {isLogin ? 'Hesabın yok mu?' : 'Zaten üye misin?'}
-              </Text>
-              <Pressable onPress={() => setIsLogin((p) => !p)}>
-                <Text style={styles.switchLink}>{isLogin ? 'Kayıt Ol' : 'Giriş Yap'}</Text>
-              </Pressable>
-            </View>
+            {isForgot ? (
+              <View style={styles.switchRow}>
+                <Pressable onPress={() => { setIsForgot(false); setIsLogin(true); }}>
+                  <Text style={styles.switchLink}>← Giriş ekranına dön</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.switchRow}>
+                <Text style={{ color: colors.textMuted }}>
+                  {isLogin ? 'Hesabın yok mu?' : 'Zaten üye misin?'}
+                </Text>
+                <Pressable onPress={() => setIsLogin((p) => !p)}>
+                  <Text style={styles.switchLink}>{isLogin ? 'Kayıt Ol' : 'Giriş Yap'}</Text>
+                </Pressable>
+              </View>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

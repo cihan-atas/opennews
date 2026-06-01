@@ -71,6 +71,7 @@ function Sidebar({ isCollapsed = false, onToggle }) {
     { name: 'Dashboard', path: '/dashboard', icon: '📊' },
     { name: 'Podcastlerim', path: '/podcasts', icon: '🎙️' },
     { name: 'Kaydedilenler', path: '/bookmarks', icon: '🔖' },
+    { name: 'Sonra Oku', path: '/read-later', icon: '📑' },
     { name: 'RSS Okuyucu', path: '/rss-reader', icon: '📡' },
     ...(isAdmin ? [{ name: 'Admin', path: '/admin', icon: '🛠️' }] : []),
   ];

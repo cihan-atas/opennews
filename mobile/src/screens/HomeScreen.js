@@ -10,8 +10,10 @@ import NewsDetailModal from '../components/NewsDetailModal';
 import { radius } from '../theme';
 import { useTheme } from '../contexts/ThemeContext';
 import { usePlayer } from '../contexts/PlayerContext';
+import * as SecureStore from 'expo-secure-store';
 
 const PAGE_SIZE = 10;
+const SEARCH_HISTORY_KEY = 'searchHistory';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -25,6 +27,8 @@ export default function HomeScreen() {
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [search, setSearch] = useState('');
+  const [searchHistory, setSearchHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState(null); // null=ilgi, 0=tümü, id=kategori
   const [interests, setInterests] = useState([]);
   const [trending, setTrending] = useState([]);
@@ -81,7 +85,45 @@ export default function HomeScreen() {
     if (bulletinPoll.current) clearInterval(bulletinPoll.current);
   }, []);
 
-  const handleSearch = () => { setPage(1); fetchNews(search, 1, activeCategoryId); };
+  // Arama geçmişini cihazdan yükle (SecureStore — tema ile aynı kalıcılık).
+  useEffect(() => {
+    SecureStore.getItemAsync(SEARCH_HISTORY_KEY).then((raw) => {
+      if (raw) { try { setSearchHistory(JSON.parse(raw)); } catch (_) {} }
+    });
+  }, []);
+
+  const pushSearchHistory = (term) => {
+    const q = (term || '').trim();
+    if (!q) return;
+    setSearchHistory((prev) => {
+      const next = [q, ...prev.filter((t) => t.toLowerCase() !== q.toLowerCase())].slice(0, 8);
+      SecureStore.setItemAsync(SEARCH_HISTORY_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  };
+
+  const removeHistoryItem = (term) => {
+    setSearchHistory((prev) => {
+      const next = prev.filter((t) => t !== term);
+      SecureStore.setItemAsync(SEARCH_HISTORY_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  };
+
+  const handleSearch = () => {
+    pushSearchHistory(search);
+    setShowHistory(false);
+    setPage(1);
+    fetchNews(search, 1, activeCategoryId);
+  };
+
+  const runSearchFromHistory = (term) => {
+    setSearch(term);
+    pushSearchHistory(term);
+    setShowHistory(false);
+    setPage(1);
+    fetchNews(term, 1, activeCategoryId);
+  };
 
   const handleCategory = (catId) => { setActiveCategoryId(catId); setPage(1); };
 
@@ -207,12 +249,35 @@ export default function HomeScreen() {
           value={search}
           onChangeText={setSearch}
           onSubmitEditing={handleSearch}
+          onFocus={() => setShowHistory(true)}
           returnKeyType="search"
         />
         <Pressable onPress={handleRefresh} disabled={refreshing} style={styles.refreshBtn}>
           <Text style={{ color: colors.textMuted, fontSize: 18 }}>{refreshing ? '…' : '↻'}</Text>
         </Pressable>
       </View>
+
+      {showHistory && searchHistory.length > 0 && (
+        <View style={styles.historyBox}>
+          <View style={styles.historyHeader}>
+            <Text style={styles.historyTitle}>Son Aramalar</Text>
+            <Pressable onPress={() => setShowHistory(false)}>
+              <Text style={{ color: colors.textFaint, fontSize: 12 }}>Gizle</Text>
+            </Pressable>
+          </View>
+          {searchHistory.map((term) => (
+            <View key={term} style={styles.historyRow}>
+              <Pressable onPress={() => runSearchFromHistory(term)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ color: colors.textFaint }}>🕘</Text>
+                <Text style={{ color: colors.textMuted, fontSize: 14 }} numberOfLines={1}>{term}</Text>
+              </Pressable>
+              <Pressable onPress={() => removeHistoryItem(term)} hitSlop={8}>
+                <Text style={{ color: colors.textFaint, fontSize: 14 }}>✕</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
 
       <Pressable onPress={handleBulletin} disabled={bulletinLoading} style={styles.bulletinBtn}>
         <Text style={styles.bulletinBtnText}>
@@ -320,6 +385,10 @@ const makeStyles = (colors) => StyleSheet.create({
   h1: { color: colors.white, fontSize: 30, fontWeight: '900', paddingHorizontal: 0, marginTop: 8 },
   sub: { color: colors.textMuted, fontSize: 15, marginTop: 6, marginBottom: 18 },
   searchRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
+  historyBox: { backgroundColor: colors.surfaceAlpha, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.md, padding: 6, marginTop: -8, marginBottom: 18 },
+  historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6 },
+  historyTitle: { color: colors.textFaint, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  historyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10, paddingVertical: 10 },
   search: {
     flex: 1, backgroundColor: 'rgba(15,23,42,0.4)', borderWidth: 1, borderColor: colors.border,
     borderRadius: radius.md, paddingHorizontal: 18, paddingVertical: 12, color: colors.white,

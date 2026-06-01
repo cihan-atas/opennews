@@ -9,6 +9,8 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [trending, setTrending] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedNews, setSelectedNews] = useState(null);
+  const [newsLoading, setNewsLoading] = useState(false);
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   const showToast = (message, type = 'error') => setToast({ show: true, message, type });
@@ -38,6 +40,21 @@ export default function Dashboard() {
     load();
   }, []);
 
+  const openNews = async (id) => {
+    setNewsLoading(true);
+    setSelectedNews({ id });
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/news/${id}`);
+      if (res.ok) setSelectedNews(await res.json());
+      else setSelectedNews(null);
+    } catch (_) {
+      showToast('Haber yüklenemedi.');
+      setSelectedNews(null);
+    } finally {
+      setNewsLoading(false);
+    }
+  };
+
   const statCards = stats ? [
     { icon: '📰', label: 'Toplam Okuma', value: stats.articles_read ?? 0, color: '#6366f1' },
     { icon: '📅', label: 'Bu Hafta', value: stats.week_reads ?? 0, color: '#10b981' },
@@ -46,6 +63,7 @@ export default function Dashboard() {
   ] : [];
 
   return (
+    <>
     <div style={{ backgroundColor: '#020617', color: '#f1f5f9', minHeight: '100vh', fontFamily: "'Inter', sans-serif" }}>
 
       {/* Toast */}
@@ -118,7 +136,7 @@ export default function Dashboard() {
                   {trending.slice(0, 8).map((news, idx) => (
                     <div
                       key={news.id}
-                      onClick={() => navigate(`/home?open=${news.id}`)}
+                      onClick={() => openNews(news.id)}
                       style={{
                         display: 'flex', alignItems: 'flex-start', gap: '16px',
                         background: 'rgba(15,23,42,0.5)', border: '1px solid rgba(255,255,255,0.05)',
@@ -152,5 +170,82 @@ export default function Dashboard() {
         )}
       </div>
     </div>
+
+    {/* Haber Modalı */}
+
+    {selectedNews && (
+      <div
+        onClick={() => setSelectedNews(null)}
+        style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(2,6,23,0.88)', backdropFilter: 'blur(16px)', display: 'flex', justifyContent: 'center', alignItems: isMobile ? 'flex-end' : 'center', zIndex: 2000, padding: isMobile ? 0 : '2rem' }}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{ background: 'rgba(10,15,30,0.99)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: isMobile ? '28px 28px 0 0' : '32px', padding: isMobile ? '2rem 1.5rem 2.5rem' : '2.75rem', width: '100%', maxWidth: '720px', maxHeight: isMobile ? '92vh' : '88vh', overflowY: 'auto', position: 'relative', boxShadow: '0 40px 100px rgba(0,0,0,0.7)' }}
+        >
+          <button
+            onClick={() => setSelectedNews(null)}
+            style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.07)', color: '#64748b', width: '38px', height: '38px', borderRadius: '50%', cursor: 'pointer', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >✕</button>
+
+          {newsLoading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px', color: '#475569', fontSize: '1.5rem' }}>⏳</div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1.25rem', flexWrap: 'wrap', paddingRight: '3rem' }}>
+                {selectedNews.category?.name && (
+                  <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#818cf8', background: 'rgba(99,102,241,0.15)', padding: '4px 10px', borderRadius: '8px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                    {selectedNews.category.name}
+                  </span>
+                )}
+                {selectedNews.created_at && (
+                  <span style={{ fontSize: '0.75rem', color: '#334155' }}>
+                    {new Date(selectedNews.created_at).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  </span>
+                )}
+              </div>
+
+              <h2 style={{ margin: '0 0 1.5rem', fontSize: isMobile ? '1.35rem' : '1.7rem', fontWeight: '900', color: 'white', lineHeight: '1.3' }}>
+                {selectedNews.title}
+              </h2>
+
+              {selectedNews.summary && (
+                <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.12)', borderRadius: '18px', padding: '1.25rem', marginBottom: '1.5rem' }}>
+                  <p style={{ margin: '0 0 6px', fontSize: '0.62rem', fontWeight: '900', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '1px' }}>AI Özet</p>
+                  <p style={{ margin: 0, color: '#cbd5e1', fontSize: '0.95rem', lineHeight: '1.75' }}>{selectedNews.summary}</p>
+                </div>
+              )}
+
+              {selectedNews.content && (
+                <div style={{ color: '#94a3b8', fontSize: '1rem', lineHeight: '1.85', whiteSpace: 'pre-wrap', marginBottom: '1.5rem' }}>
+                  {selectedNews.content}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                {selectedNews.source_url && (
+                  <a
+                    href={selectedNews.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ flex: 1, minWidth: '130px', padding: '13px 18px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.09)', background: 'transparent', color: '#94a3b8', fontWeight: '700', fontSize: '0.88rem', textDecoration: 'none', textAlign: 'center', transition: '0.2s' }}
+                    onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = 'white'; }}
+                    onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)'; e.currentTarget.style.color = '#94a3b8'; }}
+                  >
+                    🔗 Kaynağa Git
+                  </a>
+                )}
+                <button
+                  onClick={() => { setSelectedNews(null); navigate(`/home?open=${selectedNews.id}`); }}
+                  style={{ flex: 1, minWidth: '130px', padding: '13px 18px', borderRadius: '14px', border: 'none', background: 'linear-gradient(135deg,#6366f1,#818cf8)', color: 'white', fontWeight: '700', fontSize: '0.88rem', cursor: 'pointer' }}
+                >
+                  🏠 Haber Akışında Aç
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    )}
+    </>
   );
 }

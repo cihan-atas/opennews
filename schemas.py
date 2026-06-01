@@ -147,6 +147,14 @@ class UserPasswordChange(BaseModel):
     old_password: str
     new_password: str
 
+# --- Şifre Sıfırlama Şemaları ---
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(..., min_length=6, description="Yeni şifre en az 6 karakter olmalı.")
+
 class BookmarkOut(BaseModel):
     id: int
     news_id: int
@@ -158,6 +166,19 @@ class BookmarkOut(BaseModel):
 
 class BookmarkPagination(PaginationBase):
     items: List[BookmarkOut]
+
+# --- Sonra Oku Şemaları ---
+class ReadLaterOut(BaseModel):
+    id: int
+    news_id: int
+    added_at: datetime
+    news: Optional["NewsListOut"] = None
+
+    class Config:
+        from_attributes = True
+
+class ReadLaterPagination(PaginationBase):
+    items: List[ReadLaterOut]
 
 
 class PushTokenRegister(BaseModel):

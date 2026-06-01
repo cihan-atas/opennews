@@ -22,6 +22,7 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
   const [news, setNews] = useState(null);
   const [loading, setLoading] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
+  const [readLater, setReadLater] = useState(false);
   const [related, setRelated] = useState([]);
   const [feedback, setFeedback] = useState(null);
   const [podcastStatus, setPodcastStatus] = useState('idle'); // idle | processing | ready
@@ -39,15 +40,16 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
 
   const loadNews = useCallback(async (id) => {
     setLoading(true);
-    setNews(null); setRelated([]); setFeedback(null);
+    setNews(null); setRelated([]); setFeedback(null); setReadLater(false);
     setTranslated(null); setLang('tr'); setPodcastStatus('idle');
     try {
-      const [detailRes, podRes, bmRes, relRes, fbRes] = await Promise.all([
+      const [detailRes, podRes, bmRes, relRes, fbRes, rlRes] = await Promise.all([
         apiFetch(`/news/${id}`),
         apiFetch(`/podcast/by-news/${id}`),
         apiFetch(`/bookmarks/check/${id}`),
         apiFetch(`/news/${id}/related`),
         apiFetch(`/news/${id}/feedback/mine`),
+        apiFetch(`/read-later/check/${id}`),
       ]);
 
       let detail = null;
@@ -55,9 +57,10 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
       if (podRes.ok) {
         const pod = await podRes.json();
         setPodcastStatus('ready');
-        setTrack(pod.audio_url, detail?.title, detail?.category?.name, false);
+        setTrack(pod.audio_url, detail?.title, detail?.category?.name, false, pod.id);
       }
       if (bmRes.ok) setBookmarked((await bmRes.json()).bookmarked);
+      if (rlRes.ok) setReadLater((await rlRes.json()).in_read_later);
       if (relRes.ok) setRelated(await relRes.json());
       if (fbRes.ok) setFeedback((await fbRes.json()).rating);
     } catch (_) {
@@ -78,6 +81,16 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
       if (res.ok) {
         setBookmarked((p) => !p);
         showToast(bookmarked ? 'Kaydedilenlerden kaldırıldı.' : 'Kaydedildi! 🔖');
+      }
+    } catch (_) { showToast('İşlem başarısız.', 'error'); }
+  };
+
+  const toggleReadLater = async () => {
+    try {
+      const res = await apiFetch(`/read-later/${activeId}`, { method: readLater ? 'DELETE' : 'POST' });
+      if (res.ok) {
+        setReadLater((p) => !p);
+        showToast(readLater ? 'Sonra oku listesinden kaldırıldı.' : 'Sonra oku listesine eklendi! 📑');
       }
     } catch (_) { showToast('İşlem başarısız.', 'error'); }
   };
@@ -120,7 +133,7 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
             const data = await p.json();
             stopPolling();
             setPodcastStatus('ready');
-            setTrack(data.audio_url, news.title, news.category?.name, true);
+            setTrack(data.audio_url, news.title, news.category?.name, true, data.id);
             showToast('Podcast hazır! 🎧');
           }
         } catch (_) {}
@@ -132,7 +145,7 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
     const p = await apiFetch(`/podcast/by-news/${activeId}`);
     if (p.ok) {
       const data = await p.json();
-      setTrack(data.audio_url, news.title, news.category?.name, true);
+      setTrack(data.audio_url, news.title, news.category?.name, true, data.id);
     }
   };
 
@@ -210,6 +223,12 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
                 <Pressable onPress={toggleBookmark} style={[styles.outlineBtn, bookmarked && { borderColor: colors.primaryLight }]}>
                   <Text style={{ color: bookmarked ? colors.primaryLight : colors.textMuted, fontWeight: '600' }}>
                     {bookmarked ? '🔖 Kaydedildi' : '🔖 Kaydet'}
+                  </Text>
+                </Pressable>
+
+                <Pressable onPress={toggleReadLater} style={[styles.outlineBtn, readLater && { borderColor: colors.primaryLight }]}>
+                  <Text style={{ color: readLater ? colors.primaryLight : colors.textMuted, fontWeight: '600' }}>
+                    {readLater ? '📑 Kuyrukta' : '📑 Sonra Oku'}
                   </Text>
                 </Pressable>
 

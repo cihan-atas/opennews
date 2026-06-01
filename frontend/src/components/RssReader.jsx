@@ -307,13 +307,7 @@ function RssReader() {
   };
 
   const handleAddFromCommunity = (url, title) => {
-    if (selectedList) {
-      // Liste zaten seçiliyse doğrudan ekle
-      addFeedToList(selectedList.id, url);
-    } else {
-      // Liste seçilmediyse picker aç
-      setListPickerFeed({ url, title });
-    }
+    setListPickerFeed({ url, title });
   };
 
   const addFeedToList = async (listId, url) => {
@@ -325,14 +319,14 @@ function RssReader() {
       });
       if (res.ok) {
         const feed = await res.json();
-        if (selectedList?.id === listId) {
-          const updatedList = { ...selectedList, feeds: [...(selectedList.feeds || []), feed], feed_count: (selectedList.feed_count || 0) + 1 };
-          setSelectedList(updatedList);
-          setLists(prev => prev.map(l => l.id === listId ? updatedList : l));
-          loadArticles(listId);
-        }
-        showToast('Kaynak listeye eklendi!', 'success');
+        const targetList = lists.find(l => l.id === listId) || selectedList;
+        const updatedList = { ...targetList, feeds: [...(targetList?.feeds || []), feed], feed_count: (targetList?.feed_count || 0) + 1 };
+        setLists(prev => prev.map(l => l.id === listId ? updatedList : l));
+        setSelectedList(updatedList);
         setListPickerFeed(null);
+        showToast('Kaynak listeye eklendi!', 'success');
+        loadArticles(listId);
+        if (isMobile) setShowListPanel(false);
       } else {
         const err = await res.json();
         showToast(err.detail || 'Eklenemedi.', 'error');

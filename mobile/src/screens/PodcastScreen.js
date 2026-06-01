@@ -13,7 +13,19 @@ import { useTheme } from '../contexts/ThemeContext';
 
 export default function PodcastScreen() {
   const insets = useSafeAreaInsets();
-  const { track, setTrack, clearTrack } = usePlayer();
+  const { track, setTrack, setQueue, clearTrack } = usePlayer();
+
+  const handlePlayAll = () => {
+    if (podcasts.length === 0) return;
+    const tracks = podcasts.map((pod) => ({
+      src: pod.audio_url,
+      title: pod.title,
+      category: pod.news_id ? 'Akış' : 'RSS',
+      podcastId: pod.id,
+    }));
+    setQueue(tracks, 0);
+    showToast(`${tracks.length} podcast sırayla çalınıyor...`);
+  };
   const { toast, showToast } = useToast();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -169,6 +181,11 @@ export default function PodcastScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Podcast Kütüphanem</Text>
         <Text style={styles.subtitle}>Yapay zeka ile üretilen kişisel ses dosyaların.</Text>
+        {podcasts.length > 1 && (
+          <Pressable onPress={handlePlayAll} style={styles.playAllBtn}>
+            <Text style={styles.playAllText}>▶ Tümünü Sırayla Çal</Text>
+          </Pressable>
+        )}
       </View>
 
       {loading ? (
@@ -254,6 +271,8 @@ const makeStyles = (colors) => StyleSheet.create({
   header: { paddingHorizontal: 16, paddingBottom: 8 },
   title: { color: colors.white, fontSize: 26, fontWeight: '800' },
   subtitle: { color: colors.textMuted, marginTop: 6 },
+  playAllBtn: { alignSelf: 'flex-start', marginTop: 14, backgroundColor: colors.primary, borderRadius: radius.sm, paddingVertical: 10, paddingHorizontal: 18 },
+  playAllText: { color: colors.white, fontWeight: '700', fontSize: 14 },
   empty: { alignItems: 'center', marginTop: 80 },
   card: {
     backgroundColor: colors.surfaceAlpha,

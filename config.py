@@ -22,12 +22,13 @@ class Settings(BaseSettings):
     GCP_BUCKET_NAME: str
     GCP_LOCATION: str = "europe-west3"
     FRONTEND_URL: str = "http://localhost:5173"  # Localde varsayılan değer, bulutta ezilecek.
+    VITE_API_URL: str = "http://localhost:8090"
 
     # --- Sağlayıcı Seçimi ---
     # vertex/google = GCP (ücretli)  |  openrouter/local = ücretsiz önerilen stack
-    AI_PROVIDER: str = "vertex"          # vertex | openai | openrouter | nvidia | mock
+    AI_PROVIDER: str = "vertex"          # vertex | gemini | openai | openrouter | nvidia | mock
     EMBEDDING_PROVIDER: str = "vertex"   # vertex | openai | local | mock
-    TTS_PROVIDER: str = "google"         # google | edge
+    TTS_PROVIDER: str = "google"         # google | edge | polly
     STORAGE_PROVIDER: str = "gcs"        # gcs | s3 | local
 
     # OpenAI (AI_PROVIDER/EMBEDDING_PROVIDER=openai için)
@@ -59,6 +60,10 @@ class Settings(BaseSettings):
     NVIDIA_API_KEY: str = ""
     NVIDIA_MODEL: str = "meta/llama-3.1-8b-instruct"
 
+    # Gemini API (AI_PROVIDER=gemini için)
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+
     # Yerel embedding (EMBEDDING_PROVIDER=local için — ücretsiz, Türkçe dahil 50+ dil)
     # paraphrase-multilingual-mpnet-base-v2 → 768-dim, DB migration gerektirmez
     LOCAL_EMBED_MODEL: str = "paraphrase-multilingual-mpnet-base-v2"
@@ -73,6 +78,22 @@ class Settings(BaseSettings):
 
     # Edge TTS (TTS_PROVIDER=edge için)
     EDGE_TTS_VOICE: str = "tr-TR-EmelNeural"
+
+    # Amazon Polly (TTS_PROVIDER=polly için)
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_REGION: str = "eu-central-1"
+    POLLY_VOICE_TR: str = "Burcu"
+    POLLY_ENGINE: str = "neural"
+
+    # E-posta / SMTP (şifre sıfırlama linki için — opsiyonel)
+    # Boş bırakılırsa reset linki gönderilmez, server log'una yazılır (dev modu).
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""          # boşsa SMTP_USER kullanılır
+    SMTP_USE_TLS: bool = True
 
     # Pydantic'e .env dosyasını nasıl okuyacağını söylüyoruz
     model_config = SettingsConfigDict(

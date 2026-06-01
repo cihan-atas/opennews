@@ -228,6 +228,13 @@ yarn-error.log*
 generated_audio/
 .scraper_seen_urls.json
 
+# Local test scripts (gerçek kimlik bilgisi içerir, commit edilmez)
+test_e2e.js
+test_podcast.js
+
+# AntigravityCLI (oturum/credential içerebilir)
+.antigravitycli/
+
 gcp-service-account.json
 ilerleme.md
 cihan.md

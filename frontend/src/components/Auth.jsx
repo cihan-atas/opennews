@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 function Auth() {
   const [isLogin, setIsLogin] = useState(true);
+  const [isForgot, setIsForgot] = useState(false);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,6 +27,25 @@ function Auth() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isForgot) {
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/forgot-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        if (response.ok) {
+          showToast("Eğer e-posta kayıtlıysa sıfırlama bağlantısı gönderildi.", "success");
+          setIsForgot(false);
+          setIsLogin(true);
+        } else {
+          showToast("İstek gönderilemedi, tekrar dene.", "error");
+        }
+      } catch (error) {
+        showToast("Sunucuya bağlanılamadı.", "error");
+      }
+      return;
+    }
     if (isLogin) {
       const formData = new FormData();
       formData.append('username', username);
@@ -130,27 +150,30 @@ function Auth() {
       <div style={styles.glassCard}>
         <div style={{ marginBottom: '1.25rem' }}>
           <h2 style={{ fontSize: '2rem', fontWeight: '700', color: 'white', margin: 0 }}>
-            {isLogin ? 'Hoş Geldiniz' : 'Aramıza Katıl'}
+            {isForgot ? 'Şifreni Sıfırla' : isLogin ? 'Hoş Geldiniz' : 'Aramıza Katıl'}
           </h2>
           <p style={{ color: '#94a3b8', marginTop: '1.25rem', fontSize: '0.9rem' }}>
-            {isLogin ? 'Kişiselleştirilmiş haber bültenin ve podcastlerin burada' : 'Kişisel haber akışını oluşturmaya başla'}
+            {isForgot ? 'Kayıtlı e-postanı gir, sıfırlama bağlantısını gönderelim'
+              : isLogin ? 'Kişiselleştirilmiş haber bültenin ve podcastlerin burada' : 'Kişisel haber akışını oluşturmaya başla'}
           </p>
         </div>
-        
+
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-          <div style={{ textAlign: 'left' }}>
-            <label style={{ color: '#cbd5e1', fontSize: '0.85rem', marginLeft: '4px', marginBottom: '6px', display: 'block' }}>Kullanıcı Adı</label>
-            <input
-              type="text"
-              placeholder={isLogin ? "Kullanıcı adın" : "Yeni kullanıcı adın"}
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              style={styles.input}
-            />
-          </div>
-          
-          {!isLogin && (
+          {!isForgot && (
+            <div style={{ textAlign: 'left' }}>
+              <label style={{ color: '#cbd5e1', fontSize: '0.85rem', marginLeft: '4px', marginBottom: '6px', display: 'block' }}>Kullanıcı Adı</label>
+              <input
+                type="text"
+                placeholder={isLogin ? "Kullanıcı adın" : "Yeni kullanıcı adın"}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                style={styles.input}
+              />
+            </div>
+          )}
+
+          {(!isLogin || isForgot) && (
             <div style={{ textAlign: 'left' }}>
               <label style={{ color: '#cbd5e1', fontSize: '0.85rem', marginLeft: '4px', marginBottom: '6px', display: 'block' }}>E-posta Adresi</label>
               <input
@@ -163,19 +186,30 @@ function Auth() {
               />
             </div>
           )}
-          
-          <div style={{ textAlign: 'left' }}>
-            <label style={{ color: '#cbd5e1', fontSize: '0.85rem', marginLeft: '4px', marginBottom: '6px', display: 'block' }}>Şifre</label>
-            <input
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              style={styles.input}
-            />
-          </div>
-          
+
+          {!isForgot && (
+            <div style={{ textAlign: 'left' }}>
+              <label style={{ color: '#cbd5e1', fontSize: '0.85rem', marginLeft: '4px', marginBottom: '6px', display: 'block' }}>Şifre</label>
+              <input
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                style={styles.input}
+              />
+            </div>
+          )}
+
+          {isLogin && !isForgot && (
+            <span
+              onClick={() => setIsForgot(true)}
+              style={{ color: '#818cf8', cursor: 'pointer', fontSize: '0.82rem', textAlign: 'right', marginTop: '-0.5rem' }}
+            >
+              Şifremi unuttum?
+            </span>
+          )}
+
           <button
             type="submit"
             style={styles.button}
@@ -183,16 +217,24 @@ function Auth() {
             onMouseUp={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(99, 102, 241, 0.3)'; }}
             onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(99, 102, 241, 0.3)'; }}
           >
-            {isLogin ? 'Giriş Yap' : 'Kayıt Ol'}
+            {isForgot ? 'Bağlantı Gönder' : isLogin ? 'Giriş Yap' : 'Kayıt Ol'}
           </button>
         </form>
 
-        <p style={{ textAlign: 'center', marginTop: '2rem', color: '#94a3b8', fontSize: '0.9rem' }}>
-          {isLogin ? 'Hesabın yok mu?' : 'Zaten üye misin?'} 
-          <span onClick={() => setIsLogin(!isLogin)} style={{ color: '#818cf8', cursor: 'pointer', marginLeft: '8px', fontWeight: 'bold' }}>
-            {isLogin ? 'Kayıt Ol' : 'Giriş Yap'}
-          </span>
-        </p>
+        {isForgot ? (
+          <p style={{ textAlign: 'center', marginTop: '2rem', color: '#94a3b8', fontSize: '0.9rem' }}>
+            <span onClick={() => { setIsForgot(false); setIsLogin(true); }} style={{ color: '#818cf8', cursor: 'pointer', fontWeight: 'bold' }}>
+              ← Giriş ekranına dön
+            </span>
+          </p>
+        ) : (
+          <p style={{ textAlign: 'center', marginTop: '2rem', color: '#94a3b8', fontSize: '0.9rem' }}>
+            {isLogin ? 'Hesabın yok mu?' : 'Zaten üye misin?'}
+            <span onClick={() => setIsLogin(!isLogin)} style={{ color: '#818cf8', cursor: 'pointer', marginLeft: '8px', fontWeight: 'bold' }}>
+              {isLogin ? 'Kayıt Ol' : 'Giriş Yap'}
+            </span>
+          </p>
+        )}
       </div>
     </div>
   );

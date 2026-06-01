@@ -46,13 +46,13 @@ def _local_upload(local_path: str, blob_name: str) -> str:
     os.makedirs(dest_dir, exist_ok=True)
     dest_path = os.path.join(LOCAL_AUDIO_DIR, blob_name)
     shutil.copy2(local_path, dest_path)
-    api_base = os.environ.get("VITE_API_URL", "http://localhost:8899").rstrip("/")
+    api_base = settings.VITE_API_URL.rstrip("/")
     return f"{api_base}/audio/{blob_name}"
 
 
 def _local_delete(stored_url: str) -> None:
     # URL'den dosya yolunu çıkar
-    for base in [os.environ.get("VITE_API_URL", "http://localhost:8899").rstrip("/") + "/audio/"]:
+    for base in [settings.VITE_API_URL.rstrip("/") + "/audio/"]:
         if stored_url.startswith(base):
             rel = stored_url[len(base):]
             path = os.path.join(LOCAL_AUDIO_DIR, rel)

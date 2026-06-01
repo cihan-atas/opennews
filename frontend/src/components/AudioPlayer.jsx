@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { fetchWithAuth } from '../Utils/api';
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -21,12 +22,16 @@ function formatTime(secs) {
  *   floating     – if true renders position:fixed at bottom-center
  *   isMobile     – passed down from parent for responsive offsets
  */
-function AudioPlayer({ src, title, categoryName, onClose, onNavigate, floating = false, isMobile = false, autoPlay = false }) {
+function AudioPlayer({ src, title, categoryName, podcastId = null, onClose, onNavigate, onNext, onPrev, onEnded, floating = false, isMobile = false, autoPlay = false }) {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [speedIdx, setSpeedIdx] = useState(2); // default 1×
+  // Oynatma hızı kalıcı: son seçilen hız localStorage'da saklanır, track değişse de korunur.
+  const [speedIdx, setSpeedIdx] = useState(() => {
+    const saved = parseInt(localStorage.getItem('playerSpeedIdx'), 10);
+    return Number.isInteger(saved) && saved >= 0 && saved < SPEEDS.length ? saved : 2; // default 1×
+  });
   const speed = SPEEDS[speedIdx];
   const [isMuted, setIsMuted] = useState(false);
 
@@ -100,15 +105,20 @@ function AudioPlayer({ src, title, categoryName, onClose, onNavigate, floating =
     }
   }, [src]);
 
-  // Sync speed to audio element
+  // Sync speed to audio element + persist seçilen hızı
   useEffect(() => {
     if (audioRef.current) audioRef.current.playbackRate = speed;
+    localStorage.setItem('playerSpeedIdx', String(speedIdx));
   }, [speedIdx]);
 
   // Sync mute state
   useEffect(() => {
     if (audioRef.current) audioRef.current.muted = isMuted;
   }, [isMuted]);
+
+  // onEnded callback'ini ref'te tut — stale closure olmadan kuyrukta sonrakine geç.
+  const onEndedRef = useRef(onEnded);
+  useEffect(() => { onEndedRef.current = onEnded; }, [onEnded]);
 
   // Audio event listeners
   useEffect(() => {
@@ -118,7 +128,7 @@ function AudioPlayer({ src, title, categoryName, onClose, onNavigate, floating =
     const onLoaded = () => { if (audio.duration && !isNaN(audio.duration)) setDuration(audio.duration); };
     const onPlay   = () => setIsPlaying(true);
     const onPause  = () => setIsPlaying(false);
-    const onEnded  = () => { setIsPlaying(false); setCurrentTime(0); };
+    const onEnded  = () => { setIsPlaying(false); setCurrentTime(0); if (onEndedRef.current) onEndedRef.current(); };
     audio.addEventListener('timeupdate', onTime);
     audio.addEventListener('loadedmetadata', onLoaded);
     audio.addEventListener('durationchange', onLoaded);
@@ -155,6 +165,37 @@ function AudioPlayer({ src, title, categoryName, onClose, onNavigate, floating =
   const cycleSpeed = () => setSpeedIdx(i => (i + 1) % SPEEDS.length);
 
   const progress = duration ? (currentTime / duration) * 100 : 0;
+
+  // --- TRANSCRIPT ACTIONS & STATE ---
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [transcriptText, setTranscriptText] = useState('');
+  const [loadingTranscript, setLoadingTranscript] = useState(false);
+  const [transcriptError, setTranscriptError] = useState(null);
+
+  const fetchTranscript = async () => {
+    if (!podcastId) return;
+    setLoadingTranscript(true);
+    setTranscriptError(null);
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/podcast/${podcastId}/transcript`);
+      if (res.ok) {
+        const data = await res.json();
+        setTranscriptText(data.transcript || 'Transkript bulunamadı.');
+      } else {
+        setTranscriptError('Transkript yüklenemedi.');
+      }
+    } catch (e) {
+      setTranscriptError('Bağlantı hatası.');
+    } finally {
+      setLoadingTranscript(false);
+    }
+  };
+
+  useEffect(() => {
+    setTranscriptText('');
+    setShowTranscript(false);
+    setTranscriptError(null);
+  }, [podcastId]);
 
   // Build wrapper style: if user has dragged, use absolute positioning via top/left
   const baseFloating = {
@@ -242,6 +283,45 @@ function AudioPlayer({ src, title, categoryName, onClose, onNavigate, floating =
         </div>
       )}
 
+      {/* Transcript Text Box */}
+      {showTranscript && (
+        <div
+          className="no-drag"
+          style={{
+            maxHeight: '180px',
+            overflowY: 'auto',
+            background: 'rgba(2, 6, 23, 0.45)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '12px',
+            padding: '12px',
+            fontSize: '0.78rem',
+            lineHeight: '1.5',
+            color: '#cbd5e1',
+            marginBottom: '12px',
+            textAlign: 'left',
+            scrollbarWidth: 'thin',
+          }}
+        >
+          <style>{`
+            @keyframes ap-spin {
+              to { transform: rotate(360deg); }
+            }
+          `}</style>
+          {loadingTranscript ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#94a3b8', padding: '12px 0' }}>
+              <span style={{ display: 'inline-block', width: '12px', height: '12px', border: '2px solid #818cf8', borderTopColor: 'transparent', borderRadius: '50%', animation: 'ap-spin 1s linear infinite' }}></span>
+              <span>Yazıya dökülüyor (Groq Whisper)...</span>
+            </div>
+          ) : transcriptError ? (
+            <div style={{ color: '#ef4444', textAlign: 'center', padding: '12px 0', fontSize: '0.75rem' }}>
+              ⚠️ {transcriptError}
+            </div>
+          ) : (
+            <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{transcriptText}</p>
+          )}
+        </div>
+      )}
+
       {/* Progress bar */}
       <div
         className="no-drag"
@@ -266,6 +346,14 @@ function AudioPlayer({ src, title, categoryName, onClose, onNavigate, floating =
 
       {/* Controls row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        {/* ⏮ Önceki */}
+        {onPrev && (
+          <button onClick={onPrev} title="Önceki" style={{ ...iconBtn, fontSize: '0.9rem' }}
+            onMouseOver={e => e.currentTarget.style.color = '#94a3b8'}
+            onMouseOut={e => e.currentTarget.style.color = '#64748b'}
+          >⏮</button>
+        )}
+
         {/* −10s */}
         <button onClick={() => skip(-10)} title="10 saniye geri" style={iconBtn}
           onMouseOver={e => e.currentTarget.style.color = '#94a3b8'}
@@ -285,6 +373,14 @@ function AudioPlayer({ src, title, categoryName, onClose, onNavigate, floating =
           onMouseOver={e => e.currentTarget.style.color = '#94a3b8'}
           onMouseOut={e => e.currentTarget.style.color = '#64748b'}
         >10 ⟫</button>
+
+        {/* ⏭ Sonraki */}
+        {onNext && (
+          <button onClick={onNext} title="Sonraki" style={{ ...iconBtn, fontSize: '0.9rem' }}
+            onMouseOver={e => e.currentTarget.style.color = '#94a3b8'}
+            onMouseOut={e => e.currentTarget.style.color = '#64748b'}
+          >⏭</button>
+        )}
 
         {/* Speed */}
         <button
@@ -314,6 +410,35 @@ function AudioPlayer({ src, title, categoryName, onClose, onNavigate, floating =
         >
           {isMuted ? '🔇' : '🔊'}
         </button>
+
+        {/* Transcript Toggle */}
+        {podcastId && (
+          <button
+            onClick={() => {
+              const newShow = !showTranscript;
+              setShowTranscript(newShow);
+              if (newShow && !transcriptText) {
+                fetchTranscript();
+              }
+            }}
+            title="Transkripti Göster/Gizle"
+            style={{
+              ...iconBtn,
+              background: showTranscript ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${showTranscript ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.08)'}`,
+              color: showTranscript ? '#818cf8' : '#64748b',
+              cursor: 'pointer',
+              marginLeft: '4px',
+            }}
+            onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.color = '#818cf8'; }}
+            onMouseOut={e => {
+              e.currentTarget.style.borderColor = showTranscript ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.08)';
+              e.currentTarget.style.color = showTranscript ? '#818cf8' : '#64748b';
+            }}
+          >
+            📝 Metin
+          </button>
+        )}
 
         <div style={{ flex: 1 }} />
 

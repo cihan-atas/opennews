@@ -235,11 +235,7 @@ export default function RssReaderScreen() {
   };
 
   const handleAddFromCommunity = (url, title) => {
-    if (selectedList) {
-      addFeedToList(selectedList.id, url);
-    } else {
-      setListPickerFeed({ url, title });
-    }
+    setListPickerFeed({ url, title });
   };
 
   const addFeedToList = async (listId, url) => {
@@ -250,14 +246,14 @@ export default function RssReaderScreen() {
       });
       if (res.ok) {
         const feed = await res.json();
-        if (selectedList?.id === listId) {
-          const updated = { ...selectedList, feeds: [...(selectedList.feeds || []), feed], feed_count: (selectedList.feed_count || 0) + 1 };
-          setSelectedList(updated);
-          setLists((p) => p.map((l) => (l.id === listId ? updated : l)));
-          loadArticles(listId);
-        }
-        showToast('Kaynak listeye eklendi!');
+        const targetList = lists.find((l) => l.id === listId) || selectedList;
+        const updated = { ...targetList, feeds: [...(targetList?.feeds || []), feed], feed_count: (targetList?.feed_count || 0) + 1 };
+        setLists((p) => p.map((l) => (l.id === listId ? updated : l)));
+        setSelectedList(updated);
         setListPickerFeed(null);
+        setShowCommunity(false);
+        showToast('Kaynak listeye eklendi!');
+        loadArticles(listId);
       } else {
         showToast((await res.json()).detail || 'Eklenemedi.', 'error');
       }

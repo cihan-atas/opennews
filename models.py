@@ -205,3 +205,35 @@ class SavedRssArticle(Base):
     saved_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User")
+
+
+class PasswordResetToken(Base):
+    """Şifre sıfırlama token'ı. RefreshToken deseniyle aynı: tek kullanımlık, süreli.
+
+    Kullanıcı /auth/forgot-password çağırınca üretilir, /auth/reset-password ile
+    tüketilir (used=True). 1 saat geçerli."""
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token = Column(String, unique=True, index=True, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+
+
+class ReadLaterItem(Base):
+    """'Sonra Oku' listesi — UserBookmark ile aynı yapı, ayrı tablo.
+
+    Bookmark kalıcı favori, ReadLater geçici okuma kuyruğu mantığında ayrışır."""
+    __tablename__ = "read_later_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    news_id = Column(Integer, ForeignKey("news.id", ondelete="CASCADE"), nullable=False)
+    added_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+    news = relationship("News")

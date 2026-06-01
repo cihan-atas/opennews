@@ -39,6 +39,11 @@ function Home() {
   const refreshPollRef = useRef(null);
 
   const [bookmarkedIds, setBookmarkedIds] = useState(new Set());
+  const [readLaterIds, setReadLaterIds] = useState(new Set());
+  const [searchHistory, setSearchHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('searchHistory') || '[]'); } catch { return []; }
+  });
+  const [showHistory, setShowHistory] = useState(false);
   const [relatedNews, setRelatedNews] = useState([]);
   const [trendingNews, setTrendingNews] = useState([]);
   const [myFeedback, setMyFeedback] = useState(null);
@@ -137,7 +142,56 @@ function Home() {
     }
   };
 
-  const handleSearch = () => { setPage(1); fetchNews(searchTerm, 1, pageSize, activeCategoryId); };
+  const pushSearchHistory = (term) => {
+    const q = (term || '').trim();
+    if (!q) return;
+    setSearchHistory(prev => {
+      const next = [q, ...prev.filter(t => t.toLowerCase() !== q.toLowerCase())].slice(0, 8);
+      try { localStorage.setItem('searchHistory', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  };
+
+  const handleSearch = () => {
+    pushSearchHistory(searchTerm);
+    setShowHistory(false);
+    setPage(1);
+    fetchNews(searchTerm, 1, pageSize, activeCategoryId);
+  };
+
+  const runSearchFromHistory = (term) => {
+    setSearchTerm(term);
+    pushSearchHistory(term);
+    setShowHistory(false);
+    setPage(1);
+    fetchNews(term, 1, pageSize, activeCategoryId);
+  };
+
+  const removeHistoryItem = (term, e) => {
+    e.stopPropagation();
+    setSearchHistory(prev => {
+      const next = prev.filter(t => t !== term);
+      try { localStorage.setItem('searchHistory', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  };
+
+  const handleToggleReadLater = async (newsId) => {
+    const inList = readLaterIds.has(newsId);
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/read-later/${newsId}`, {
+        method: inList ? 'DELETE' : 'POST',
+      });
+      if (res.ok) {
+        setReadLaterIds(prev => {
+          const next = new Set(prev);
+          inList ? next.delete(newsId) : next.add(newsId);
+          return next;
+        });
+        showToast(inList ? 'Sonra oku listesinden kaldırıldı.' : 'Sonra oku listesine eklendi! 📑', 'success');
+      }
+    } catch (_) { showToast('İşlem başarısız.', 'error'); }
+  };
 
 
   const readingTime = (text) => {
@@ -365,12 +419,13 @@ function Home() {
       setTranslatedSummary(null);
       setTranslationLang('tr');
       setIsTranslating(false);
-      const [detailResponse, podRes, bookmarkRes, relatedRes, feedbackRes] = await Promise.all([
+      const [detailResponse, podRes, bookmarkRes, relatedRes, feedbackRes, readLaterRes] = await Promise.all([
         fetchWithAuth(`${import.meta.env.VITE_API_URL}/news/${newsId}`),
         fetchWithAuth(`${import.meta.env.VITE_API_URL}/podcast/by-news/${newsId}`),
         fetchWithAuth(`${import.meta.env.VITE_API_URL}/bookmarks/check/${newsId}`),
         fetchWithAuth(`${import.meta.env.VITE_API_URL}/news/${newsId}/related`),
         fetchWithAuth(`${import.meta.env.VITE_API_URL}/news/${newsId}/feedback/mine`),
+        fetchWithAuth(`${import.meta.env.VITE_API_URL}/read-later/check/${newsId}`),
       ]);
 
       let newsDetail = null;
@@ -388,6 +443,15 @@ function Home() {
         setBookmarkedIds(prev => {
           const next = new Set(prev);
           bData.bookmarked ? next.add(newsId) : next.delete(newsId);
+          return next;
+        });
+      }
+
+      if (readLaterRes.ok) {
+        const rData = await readLaterRes.json();
+        setReadLaterIds(prev => {
+          const next = new Set(prev);
+          rData.in_read_later ? next.add(newsId) : next.delete(newsId);
           return next;
         });
       }
@@ -500,7 +564,32 @@ function Home() {
           <p style={{ color: '#94a3b8', fontSize: '1.1rem', marginTop: '10px' }}>Pürüzsüz ve sana özel bir haber akışı.</p>
         </div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', width: isMobile ? '100%' : 'auto' }}>
-          <input type="text" placeholder="Gündemi tara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} style={{ padding: '14px 24px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'rgba(15, 23, 42, 0.4)', color: 'white', outline: 'none', width: isMobile ? '100%' : '300px', flex: isMobile ? 1 : 'none', boxSizing: 'border-box' }} />
+          <div style={{ position: 'relative', width: isMobile ? '100%' : '300px', flex: isMobile ? 1 : 'none' }}>
+            <input type="text" placeholder="Gündemi tara..." value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              onFocus={() => setShowHistory(true)}
+              onBlur={() => setTimeout(() => setShowHistory(false), 150)}
+              style={{ padding: '14px 24px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'rgba(15, 23, 42, 0.4)', color: 'white', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+            {showHistory && searchHistory.length > 0 && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, background: 'rgba(15,23,42,0.98)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', padding: '6px', zIndex: 1200, boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px 4px' }}>
+                  <span style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Son Aramalar</span>
+                </div>
+                {searchHistory.map((term) => (
+                  <div key={term} onMouseDown={() => runSearchFromHistory(term)}
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 10px', borderRadius: '9px', cursor: 'pointer', color: '#cbd5e1', fontSize: '0.9rem' }}
+                    onMouseOver={e => e.currentTarget.style.background = 'rgba(99,102,241,0.12)'}
+                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ color: '#64748b' }}>🕘</span>{term}
+                    </span>
+                    <span onMouseDown={(e) => removeHistoryItem(term, e)} style={{ color: '#475569', fontSize: '0.85rem', padding: '0 4px' }}>✕</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <button onClick={handleBulletin} disabled={bulletinLoading} title="Günün haberlerinden tek bir sesli bülten oluştur"
             style={{ height: '48px', padding: '0 18px', borderRadius: '16px', border: '1px solid rgba(99,102,241,0.35)', background: bulletinLoading ? 'rgba(99,102,241,0.12)' : 'rgba(99,102,241,0.18)', color: '#c7d2fe', cursor: bulletinLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, whiteSpace: 'nowrap', fontWeight: 600 }}>
             <span style={{ fontSize: '18px' }}>🎙️</span>
@@ -642,6 +731,25 @@ function Home() {
                 }}
               >
                 {bookmarkedIds.has(selectedNews.id) ? '🔖 Kaydedildi' : '🔖 Kaydet'}
+              </button>
+
+              <button
+                onClick={() => handleToggleReadLater(selectedNews.id)}
+                style={{ padding: '14px 22px', borderRadius: '16px', border: `1px solid ${readLaterIds.has(selectedNews.id) ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.1)'}`, background: readLaterIds.has(selectedNews.id) ? 'rgba(99,102,241,0.1)' : 'transparent', color: readLaterIds.has(selectedNews.id) ? '#818cf8' : '#94a3b8', fontWeight: '600', cursor: 'pointer', transition: '0.2s' }}
+                onMouseOver={e => {
+                  if (!readLaterIds.has(selectedNews.id)) {
+                    e.currentTarget.style.borderColor = 'rgba(129,140,248,0.4)';
+                    e.currentTarget.style.color = '#818cf8';
+                  }
+                }}
+                onMouseOut={e => {
+                  if (!readLaterIds.has(selectedNews.id)) {
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                    e.currentTarget.style.color = '#94a3b8';
+                  }
+                }}
+              >
+                {readLaterIds.has(selectedNews.id) ? '📑 Kuyrukta' : '📑 Sonra Oku'}
               </button>
 
               <button

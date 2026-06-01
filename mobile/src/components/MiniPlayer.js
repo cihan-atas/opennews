@@ -2,12 +2,22 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
+import * as SecureStore from 'expo-secure-store';
 import { usePlayer } from '../contexts/PlayerContext';
 import { radius } from '../theme';
 import { useTheme } from '../contexts/ThemeContext';
 import { apiFetch } from '../api/client';
 
 const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
+const SPEED_KEY = 'playerSpeedIdx';
+
+// Hız tercihi: track değişince (remount) korunması için modül seviyesinde cache,
+// uygulama yeniden açılınca korunması için SecureStore. Açılışta bir kez yüklenir.
+let cachedSpeedIdx = 0;
+SecureStore.getItemAsync(SPEED_KEY).then((raw) => {
+  const idx = parseInt(raw, 10);
+  if (Number.isInteger(idx) && idx >= 0 && idx < SPEEDS.length) cachedSpeedIdx = idx;
+}).catch(() => {});
 
 function formatTime(secs) {
   if (!secs || isNaN(secs)) return '0:00';
@@ -21,14 +31,15 @@ setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true }).cat
 
 // track.src değiştiğinde dıştaki MiniPlayer key={src} ile bunu remount eder →
 // useAudioPlayer her zaman geçerli bir URL ile (null değil) oluşturulur.
-function ActivePlayer({ track, onClose }) {
+function ActivePlayer({ track, onClose, onNext, onPrev, hasNext, hasPrev }) {
   const insets = useSafeAreaInsets();
   const player = useAudioPlayer(track.src);
   const status = useAudioPlayerStatus(player);
-  const [speedIdx, setSpeedIdx] = useState(0);
+  const [speedIdx, setSpeedIdx] = useState(cachedSpeedIdx);
   const [isMuted, setIsMuted] = useState(false);
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const finishedRef = useRef(false);
 
   // --- TRANSCRIPT ACTIONS & STATE ---
   const [showTranscript, setShowTranscript] = useState(false);
@@ -70,11 +81,21 @@ function ActivePlayer({ track, onClose }) {
   }, [track.podcastId]);
 
   useEffect(() => {
+    // Kayıtlı oynatma hızını uygula ve gerekiyorsa otomatik oynat.
+    try { player.setPlaybackRate(SPEEDS[speedIdx]); } catch (_) {}
     if (track.autoPlay) {
       try { player.play(); } catch (_) {}
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Parça bitince kuyrukta sıradakine geç (yalnız bir kez tetiklenir).
+  useEffect(() => {
+    if (status?.didJustFinish && !finishedRef.current) {
+      finishedRef.current = true;
+      if (hasNext && onNext) onNext();
+    }
+  }, [status?.didJustFinish, hasNext, onNext]);
 
   const duration = status?.duration || 0;
   const currentTime = status?.currentTime || 0;
@@ -91,6 +112,8 @@ function ActivePlayer({ track, onClose }) {
   const cycleSpeed = () => {
     const next = (speedIdx + 1) % SPEEDS.length;
     setSpeedIdx(next);
+    cachedSpeedIdx = next;
+    SecureStore.setItemAsync(SPEED_KEY, String(next)).catch(() => {});
     try { player.setPlaybackRate(SPEEDS[next]); } catch (_) {}
   };
   const toggleMute = () => {
@@ -138,11 +161,17 @@ function ActivePlayer({ track, onClose }) {
       </View>
 
       <View style={styles.controls}>
+        {hasPrev && (
+          <Pressable onPress={onPrev} hitSlop={8}><Text style={styles.ctrlText}>⏮</Text></Pressable>
+        )}
         <Pressable onPress={() => skip(-15)} hitSlop={8}><Text style={styles.ctrlText}>⟪15</Text></Pressable>
         <Pressable onPress={togglePlay} style={styles.playBtn}>
           <Text style={{ color: colors.white, fontSize: 16 }}>{playing ? '⏸' : '▶'}</Text>
         </Pressable>
         <Pressable onPress={() => skip(15)} hitSlop={8}><Text style={styles.ctrlText}>15⟫</Text></Pressable>
+        {hasNext && (
+          <Pressable onPress={onNext} hitSlop={8}><Text style={styles.ctrlText}>⏭</Text></Pressable>
+        )}
         <Pressable onPress={cycleSpeed} style={styles.speedBtn}>
           <Text style={styles.speedText}>{SPEEDS[speedIdx]}×</Text>
         </Pressable>
@@ -175,9 +204,19 @@ function ActivePlayer({ track, onClose }) {
 }
 
 export default function MiniPlayer() {
-  const { track, clearTrack } = usePlayer();
+  const { track, clearTrack, playNext, playPrev, hasNext, hasPrev } = usePlayer();
   if (!track?.src) return null;
-  return <ActivePlayer key={track.src} track={track} onClose={clearTrack} />;
+  return (
+    <ActivePlayer
+      key={track.src}
+      track={track}
+      onClose={clearTrack}
+      onNext={playNext}
+      onPrev={playPrev}
+      hasNext={hasNext}
+      hasPrev={hasPrev}
+    />
+  );
 }
 
 const makeStyles = (colors) => StyleSheet.create({

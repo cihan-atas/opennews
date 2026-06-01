@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 import models, schemas
-from dependencies import db_dependency
+from dependencies import db_dependency, user_dependency
 
 router = APIRouter(
     prefix="/categories",
@@ -24,3 +24,20 @@ def get_categories(db: db_dependency):
     - **Kullanım:** Buradan gelen ID'leri, `POST /users/interests` endpoint'ine bir liste olarak göndereceksin.
     """
     return db.query(models.NewsCategory).all()
+
+
+@router.post("/", response_model=schemas.CategoryOut, status_code=201)
+def create_category(body: schemas.CategoryCreate, db: db_dependency, current_user: user_dependency):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Yalnızca adminler kategori oluşturabilir.")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Kategori adı boş olamaz.")
+    exists = db.query(models.NewsCategory).filter(models.NewsCategory.name == name).first()
+    if exists:
+        raise HTTPException(status_code=409, detail="Bu kategori zaten mevcut.")
+    cat = models.NewsCategory(name=name)
+    db.add(cat)
+    db.commit()
+    db.refresh(cat)
+    return cat

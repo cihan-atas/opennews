@@ -36,9 +36,9 @@ Expo SDK 56 + React 19 + React Navigation v7.
 
 | Servis | Dosya | Sağlayıcılar |
 |---|---|---|
-| AI metin | `services/ai.py` | `vertex` \| `openai` \| `mock` |
+| AI metin | `services/ai.py` | `vertex` \| `gemini` \| `openai` \| `mock` |
 | Embedding | `services/embeddings.py` | `vertex` \| `openai` \| `mock` |
-| TTS | `services/tts.py` | `google` \| `edge` (edge-tts, ücretsiz) |
+| TTS | `services/tts.py` | `google` \| `edge` (edge-tts, ücretsiz) \| `polly` (Amazon Polly Burcu) |
 | Depolama | `services/storage.py` | `gcs` \| `s3` \| `local` |
 
 - `config.py`'ye provider seçim değişkenleri eklendi: `AI_PROVIDER`, `EMBEDDING_PROVIDER`, `TTS_PROVIDER`, `STORAGE_PROVIDER`.
@@ -103,12 +103,82 @@ Expo SDK 56 + React 19 + React Navigation v7.
 
 ---
 
+## ✅ Faz 5 — Amazon Polly, Gemini Fonetik Çeviri ve Medya Oynatıcı Transkript Entegrasyonları (YENİ)
+
+### 1. Amazon Polly Burcu Ses Entegrasyonu
+- Türkçe ses motoru olarak Amazon Polly'nin yapay zekaya dayalı **neural** modeldeki **Burcu** sesi (`POLLY_VOICE_TR=Burcu`) entegre edildi. 
+- [services/tts.py](file:///home/zeus/Desktop/AI-Powered-News-Bulletin-and-Podcast/services/tts.py) dosyasına `_polly_synthesize` fonksiyonu eklenerek AWS Polly entegrasyonu tamamlandı.
+
+### 2. Doğrudan Gemini API ile Fonetik Çeviri & Groq Fallback
+- Türkçe Polly sesinin İngilizce terimleri ve kısaltmaları okurken yaşadığı aksan problemlerini aşmak için **fonetik okunuş çevirisi** (`phonetize_english_for_tr_tts`) geliştirildi.
+- Bu adım, genel AI sağlayıcı konfigürasyonundan bağımsız olarak doğrudan **Google Gemini API** (`gemini-2.5-flash`) kullanacak şekilde izole edildi.
+- Gemini API'nin ücretsiz limitlerindeki (429 Rate Limit) veya 503 geçici kesintilerindeki hata durumlarını aşmak için:
+  - **Retry (Yeniden Deneme):** Hata durumunda 2 saniye bekleyerek otomatik 1 kez yeniden deneme eklendi.
+  - **Groq Fallback (Yedek):** Gemini'nin tamamen başarısız olması durumunda otomatik olarak **Groq API** (`llama-3.1-8b-instant`) tetiklenerek fonetik çeviri tamamlanır.
+- Polly tek ses kullandığı için AI segmentasyon adımı baypas edildi. Bu sayede gereksiz bir AI çağrısı tasarrufu sağlandı.
+
+### 3. Podcast Anlatım Uzunluğunun 20 Cümleye Çıkarılması
+- [worker.py](file:///home/zeus/Desktop/AI-Powered-News-Bulletin-and-Podcast/worker.py) içerisindeki özetleme prompt'ları güncellenerek haberlerin 8-12 cümle yerine **18-20 cümle** uzunluğunda zengin anlatımlarla özetlenmesi sağlandı.
+
+### 4. Web ve Mobil Oynatıcıya Transkript (Metin) Desteği
+Haber dinlerken aynı anda yazılı metni takip etmeyi sağlayan transkript özelliği uçtan uca uygulandı:
+- **`PlayerContext` (Web & Mobil):** Oynatılan parçanın veritabanındaki benzersiz `podcastId` kimliğini saklama özelliği eklendi.
+- **Web (`AudioPlayer.jsx`):** Kontroller alanına modern bir **📝 Metin** butonu yerleştirildi. Tıklandığında panel yukarı genişleyerek backend'deki Groq Whisper STT servisi üzerinden dinamik olarak transkript üretir (ve DB'de cache'ler) ve kaydırılabilir şık bir panelde sunar.
+- **Mobil (`MiniPlayer.js`):** Kontroller alanına eklenen **📝 Metin** butonu ile backend'den API aracılığıyla transkript istenir. Yüklenme sırasında `ActivityIndicator` animasyonu gösterilir ve metin `ScrollView` ile kaydırılabilir bir kutuda gösterilir.
+
+### 5. Celery Kuyruk ve Scraper Kilitlenme Çözümü
+- Haber yenileme butonlarının kilitlenmesi sorunu giderildi. Celery worker'ın `scraper_queue` kuyruğunu dinlememesi nedeniyle scraper görevleri askıda kalıyor ve Redis kilidi açılmıyordu. Celery worker komutuna her iki kuyruk da eklenerek bu sorun kökten çözüldü.
+
+---
+
+## ✅ Faz 6 — Kapsamlı İnceleme: Güvenlik Düzeltmeleri + 4 Yeni Özellik (YENİ)
+
+Web + mobil + backend üç alanda detaylı kod incelemesi yapıldı; doğrulanan hatalar düzeltildi ve dört yeni özellik eklendi. Commit: `9281260`.
+
+### A. Hata Düzeltmeleri
+| # | Hata | Düzeltme |
+|---|------|----------|
+| A1 | Web `/admin` rotası herhangi bir oturum açmış kullanıcıya açıktı | `App.jsx`'e `AdminRoute` guard'ı — `/users/me` ile **backend doğrulamalı** `is_admin` kontrolü, admin değilse `/home`'a yönlendirir. Login'de kullanıcı `localStorage`'a yazılır, çıkışta temizlenir. |
+| A2 | Logout cookie silinmiyordu (`set_cookie secure=True` ↔ `delete_cookie secure=False`) | `routers/auth.py` → `delete_cookie` `secure=True` |
+| A3 | Mobil login sessizce boş kullanıcıyla başarılı olabiliyordu | `mobile/.../AuthContext.js` → `refreshUser` artık hata fırlatıyor; `login` + açılış yarım oturumu temizliyor |
+| A4 | `/rss/approved` admin kontrolü yoktu | `routers/rss.py` → `_require_admin` eklendi |
+| A5 | Fonetik dönüşümde her zaman başarısız olan Gemini denemesi (~2 sn gecikme + log kirliliği) | `services/ai.py` → Gemini denemesi kaldırıldı, doğrudan Groq |
+| + | Web `api.js` refresh sertleştirme (gövdede `access_token` yoksa çıkış), MiniPlayer `play/seek/mute` `try/catch` | |
+
+### B1. Gerçek Semantik Arama (Yerel Embedding)
+- `.env` → `EMBEDDING_PROVIDER=local` (`paraphrase-multilingual-mpnet-base-v2`, 768-dim, ücretsiz, Türkçe).
+- `scripts/reembed.py`: mevcut (mock) vektörleri gerçek modelle yeniden hesaplayan tek seferlik bakım scripti.
+- ⚠️ Worker ortamında `sentence-transformers` kurulu olmalı; ardından `python -m scripts.reembed` çalıştırılmalı. (Kurulu değilse özetler Groq ile üretilir ama embedding üretimi atlanır → "Benzer Haberler"/semantik arama boş döner.)
+
+### B2. Çoklu Haber "Bülten" Podcast'i (Web + Mobil)
+- **Backend**: `worker.process_bulletin_tts_task` — seçilen haberlerin özetlerini tek bir akıcı bülten senaryosunda birleştirir, TTS ile sese çevirir, `Podcast`'e `news_id=None` ile kaydeder.
+- **Endpoint**: `POST /news/bulletin` (otomatik veya `news_ids`/`category_id` ile) + `GET /news/bulletin/check?title=` polling.
+- **Web** (`Home.jsx`) ve **Mobil** (`HomeScreen.js`): "🎙️ Bülten" / "Günlük Bülten Oluştur" butonu, üretilince MiniPlayer ile oynatılır.
+
+### B3. Admin Paneli Genişletme (Web + Mobil)
+- **Backend**: yeni `routers/admin.py` + ortak `dependencies.admin_dependency`:
+  - `GET /admin/stats` (kullanıcı/haber/podcast sayıları, en çok tıklanan kategoriler, son 24s haber)
+  - `GET /admin/users`, `POST /admin/users/{id}/toggle-admin`, `DELETE /admin/users/{id}` (kendini koruma kontrolleriyle)
+- **Web** (`Admin.jsx`): istatistik kartları + kullanıcı yönetim tablosu.
+- **Mobil** (`SettingsScreen.js`): `is_admin` ise görünen "🛠️ Yönetim" bölümü (istatistik özeti + bekleyen RSS onay/red).
+
+### B4. Çeviri + Fonetik Cache
+- **Çeviri (DB)**: yeni `TranslationCache` modeli + migration `e7a1b2c3d4e5`; `utils.translate_cached` — aynı metin+dil tekrar gelirse AI çağrısı yapılmaz. `news`/`rss` çeviri endpoint'lerine bağlandı.
+- **Fonetik (modül içi)**: `services/ai.py phonetize_english_for_tr_tts` sonuçları modül seviyesinde cache'lenir.
+
+> Not: Faz 5'teki "Gemini fonetik + retry/fallback" mantığı bu fazda kaldırıldı (mevcut key bu modeli desteklemiyordu, her seferinde 429 dönüyordu). Artık doğrudan Groq + cache kullanılıyor.
+
+---
+
 ## 🔍 Doğrulama Sonuçları
 - **Mobil (Faz 1):** 1014 modül, ~2.7 MB Hermes bundle — temiz derleme.
 - **Backend auth (Faz 1A):** 12/12 kontrol geçti.
 - **services/ (Faz 2):** 13/13 kontrol geçti.
 - **Podcast üretimi (Faz 3):** Mock AI + edge-tts + local storage — uçtan uca başarılı.
-- **Expo Web (Faz 4):** `http://localhost:9898` — 5 özellik web'de çalışıyor.
+- **Expo Web (Faz 4):** `http://localhost:8081` — 5 özellik web'de çalışıyor.
+- **Polly & Gemini TTS (Faz 5):** CERT-In -> "Sörtin" şeklinde doğru fonetik ses ve transkript üretimi sağlandı.
+- **Yetki & Admin (Faz 6):** TestClient ile doğrulandı — admin (`cihan@cihan.com`) `/admin/stats`, `/admin/users`, `/rss/approved` → 200; normal user (`cihan@atas.com`) → 403. Çeviri cache round-trip doğrulandı (2. çağrı DB'den). Web `npm run build` temiz; mobil dosyalar babel-parse temiz. Migration `e7a1b2c3d4e5` uygulandı.
+- **Canlı çalıştırma (Faz 6):** Web (5173), Expo Web (9898), Backend (8090), Celery worker, Redis ve DB birlikte ayağa kaldırıldı — hepsi HTTP 200. (Embedding üretimi yalnızca `sentence-transformers` kurulu değilse atlanır.)
 
 ---
 
@@ -124,22 +194,26 @@ docker run -d --name news-and-podcast-db \
 # 2. Redis
 docker run -d --name news-and-podcast-redis -p 6379:6379 redis:7-alpine
 
-# 3. Virtualenv & Backend
-python3 -m venv /tmp/newsflow_venv
-source /tmp/newsflow_venv/bin/activate
+# 3. Virtualenv & Backend (frontend/.env ve mobile/.env → http://localhost:8090)
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8899 --reload
-# Swagger: http://localhost:8899/docs
+# Semantik arama için (EMBEDDING_PROVIDER=local): sentence-transformers gerekir (requirements.txt'te var)
+python -m uvicorn main:app --host 0.0.0.0 --port 8090 --reload
+# Swagger: http://localhost:8090/docs
 
-# 4. Celery Worker
-source /tmp/newsflow_venv/bin/activate
-celery -A worker worker --loglevel=info -Q scraper_queue,ai_queue
+# 4. Celery Worker (Mutlaka iki kuyruğu da dinlemelidir!)
+source venv/bin/activate
+python -m celery -A worker.celery_app worker --loglevel=info --concurrency=2 -Q ai_queue,scraper_queue
 
-# 5. Frontend
+# 4b. (İlk kurulumda / mock'tan local'e geçişte) embedding'leri yeniden üret
+python -m scripts.reembed
+
+# 5. Frontend (Web)
 cd frontend && npm install && npm run dev
 # http://localhost:5173
 
-# 6. Expo Web
+# 6. Mobil Uygulama (Expo Web)
 cd mobile && npm install && npx expo start --web --port 9898
 # http://localhost:9898
 ```
@@ -148,11 +222,4 @@ cd mobile && npm install && npx expo start --web --port 9898
 ```bash
 docker compose up --build
 # API: http://localhost:8080/docs
-```
-
-### Mobil Cihaz
-```bash
-cd mobile
-# .env: EXPO_PUBLIC_API_URL=http://<LAN-IP>:8899  (localhost DEĞİL — cihaz erişemez)
-npx expo start
 ```

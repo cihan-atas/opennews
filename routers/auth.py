@@ -2,8 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie,
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
+import secrets
 import models, schemas, utils
 from dependencies import db_dependency
+from services import email as email_service
+from config import settings
 from datetime import datetime, timedelta, timezone
 from typing_extensions import Annotated, Optional
 from uuid import uuid4
@@ -190,3 +193,72 @@ def logout(request: Request, response: Response, db: db_dependency, refresh_toke
     )
 
     return {"message": "Successfully logged out"}
+
+
+@router.post("/forgot-password")
+def forgot_password(body: schemas.ForgotPasswordRequest, db: db_dependency):
+    """
+    ### BURAK:
+    - Kullanıcı "Şifremi unuttum" deyince bunu çağır.
+    - **Güvenlik:** E-posta kayıtlı olsun olmasın HER ZAMAN 200 döner (hesap varlığı sızdırılmaz).
+    - SMTP yapılandırılmışsa sıfırlama linki e-postayla gider; değilse server log'una yazılır (dev).
+    """
+    user = db.query(models.User).filter(models.User.email == body.email).first()
+
+    if user:
+        # Bu kullanıcıya ait eski/kullanılmamış token'ları temizle (tek aktif token).
+        db.query(models.PasswordResetToken).filter(
+            models.PasswordResetToken.user_id == user.id,
+            models.PasswordResetToken.used == False,  # noqa: E712
+        ).delete(synchronize_session=False)
+
+        raw_token = secrets.token_urlsafe(32)
+        reset_token = models.PasswordResetToken(
+            user_id=user.id,
+            token=raw_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        db.add(reset_token)
+        db.commit()
+
+        reset_link = f"{settings.FRONTEND_URL.rstrip('/')}/reset-password?token={raw_token}"
+        email_service.send_password_reset(user.email, reset_link)
+
+    # Enumeration önleme: her durumda aynı yanıt.
+    return {"message": "Eğer bu e-posta kayıtlıysa, sıfırlama bağlantısı gönderildi."}
+
+
+@router.post("/reset-password")
+def reset_password(body: schemas.ResetPasswordRequest, db: db_dependency):
+    """
+    ### BURAK:
+    - E-postadaki linkten gelen token + yeni şifre ile çağrılır.
+    - Başarılı sıfırlamada kullanıcının TÜM refresh token'ları silinir (tüm oturumlar kapanır).
+    """
+    db_token = db.query(models.PasswordResetToken).filter(
+        models.PasswordResetToken.token == body.token
+    ).first()
+
+    if not db_token or db_token.used:
+        raise HTTPException(status_code=400, detail="Geçersiz veya kullanılmış bağlantı.")
+
+    expires_at = db_token.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Bağlantının süresi dolmuş, yeniden talep edin.")
+
+    user = db.query(models.User).filter(models.User.id == db_token.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Kullanıcı bulunamadı.")
+
+    user.hashed_password = utils.hash_password(body.new_password)
+    db_token.used = True
+
+    # Güvenlik: tüm aktif oturumları kapat (refresh token'ları sil).
+    db.query(models.RefreshToken).filter(
+        models.RefreshToken.user_id == user.id
+    ).delete(synchronize_session=False)
+
+    db.commit()
+    return {"message": "Şifreniz güncellendi. Artık yeni şifrenizle giriş yapabilirsiniz."}
