@@ -170,6 +170,41 @@ Web + mobil + backend üç alanda detaylı kod incelemesi yapıldı; doğrulanan
 
 ---
 
+## ✅ Faz 7 — 4 Yeni Özellik: Şifre Sıfırlama, Read Later, Podcast Kuyruğu, Semantik Arama Aktivasyonu (YENİ)
+
+İnceleme + kullanıcı önceliklendirmesiyle dört özellik backend + web + mobil üç katmanda eklendi. Commit: `7b2c7cc`.
+
+### 1. Şifre Sıfırlama Akışı
+Şu ana kadar yalnızca in-app şifre değiştirme (`PUT /users/change-password`) vardı; "şifremi unuttum" akışı eklendi.
+- **Backend**: `models.PasswordResetToken` (tek kullanımlık, 1 saat geçerli) + migration `ca743bf08dbc`.
+  - `POST /auth/forgot-password`: e-posta kayıtlı olsun olmasın **her zaman 200** (hesap enumeration önleme); kullanıcı varsa `secrets.token_urlsafe(32)` token üretir, eski kullanılmamış token'ları siler.
+  - `POST /auth/reset-password`: token geçerli/süresi dolmamış/kullanılmamış mı kontrol → yeni şifre + token `used=True` + kullanıcının **tüm refresh token'ları silinir** (tüm oturumlar kapanır).
+  - `services/email.py`: SMTP yapılandırılmışsa (`config.py` `SMTP_*`) e-posta gönderir, değilse reset linkini **server log'una yazar** (dev modu — SMTP'siz test edilebilir).
+- **Web**: `Auth.jsx`'e "Şifremi unuttum?" linki + e-posta formu; yeni `ResetPassword.jsx` sayfası + public `/reset-password?token=` route.
+- **Mobil**: `AuthScreen.js`'e forgot-password formu (toast geri bildirimli).
+
+### 2. Sonra Oku (Read Later) Listesi
+Kalıcı favori (bookmark) dışında, ayrı bir okuma kuyruğu.
+- **Backend**: `models.ReadLaterItem` (UserBookmark deseni) + aynı migration; `routers/read_later.py` (`GET /read-later/`, `POST/DELETE /read-later/{news_id}`, `GET /read-later/check/{news_id}`).
+- **Web**: yeni `ReadLater.jsx` sayfası + Sidebar "📑 Sonra Oku" + `/read-later` route; Home detay modalına "📑 Sonra Oku" butonu.
+- **Mobil**: yeni `ReadLaterScreen.js` + MainTabs "Sonra" sekmesi (`time-outline`) + NewsDetailModal butonu.
+
+### 3. Arama Geçmişi (client-side, backend yok)
+- **Web** (`Home.jsx`): aramalar `localStorage`'da `searchHistory` (son 8, tekrarsız); arama kutusu focus olunca öneri dropdown, tıkla-arat, tek tek ✕ ile sil.
+- **Mobil** (`HomeScreen.js`): aynı mantık `expo-secure-store` ile (projede AsyncStorage yok; tema da SecureStore kullanıyor).
+
+### 4. Podcast Kuyruğu + Hız Hafızası
+- **`PlayerContext` (Web & Mobil)**: tek-track'ten **kuyruk** modeline genişletildi — `setQueue(tracks, startIndex)`, `playNext/playPrev`, `hasNext/hasPrev`. `setTrack` geriye uyumlu korundu.
+- **Web (`AudioPlayer.jsx`)**: oynatma hızı `localStorage`'da kalıcı (track değişse de korunur), parça bitince **otomatik sonraki** (`onEnded`), floating modda ⏮/⏭ butonları.
+- **Mobil (`MiniPlayer.js`)**: `expo-audio` `didJustFinish` ile otomatik sonraki, hız `expo-secure-store` + modül cache (remount'ta korunur), ⏮/⏭ butonları.
+- **Web (`Podcast.jsx`) + Mobil (`PodcastScreen.js`)**: "▶ Tümünü Sırayla Çal" butonu — tüm kütüphaneyi kuyruğa alır.
+
+### 5. Semantik Aramanın Aktive Edilmesi (Faz 6 B1'in tamamlanması)
+- venv'e `sentence-transformers 5.5.1` kuruldu. **Not:** `pip install sentence-transformers` doğrudan CUDA torch wheel'lerini çekip ağ hatası veriyordu; önce **CPU-only torch** kuruldu: `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
+- `python -m scripts.reembed` çalıştı: **166/166 haber** `paraphrase-multilingual-mpnet-base-v2` ile yeniden embed edildi. Artık "Benzer Haberler" ve `/news/?search=` gerçek anlamsal sonuç döndürüyor.
+
+---
+
 ## 🔍 Doğrulama Sonuçları
 - **Mobil (Faz 1):** 1014 modül, ~2.7 MB Hermes bundle — temiz derleme.
 - **Backend auth (Faz 1A):** 12/12 kontrol geçti.
@@ -179,6 +214,7 @@ Web + mobil + backend üç alanda detaylı kod incelemesi yapıldı; doğrulanan
 - **Polly & Gemini TTS (Faz 5):** CERT-In -> "Sörtin" şeklinde doğru fonetik ses ve transkript üretimi sağlandı.
 - **Yetki & Admin (Faz 6):** TestClient ile doğrulandı — admin (`cihan@cihan.com`) `/admin/stats`, `/admin/users`, `/rss/approved` → 200; normal user (`cihan@atas.com`) → 403. Çeviri cache round-trip doğrulandı (2. çağrı DB'den). Web `npm run build` temiz; mobil dosyalar babel-parse temiz. Migration `e7a1b2c3d4e5` uygulandı.
 - **Canlı çalıştırma (Faz 6):** Web (5173), Expo Web (9898), Backend (8090), Celery worker, Redis ve DB birlikte ayağa kaldırıldı — hepsi HTTP 200. (Embedding üretimi yalnızca `sentence-transformers` kurulu değilse atlanır.)
+- **Faz 7:** Şifre sıfırlama akışı DB üzerinden uçtan uca test edildi (token üretimi → dev e-posta log → şifre değişimi → tek kullanımlık token). Yeni route'lar (`/auth/forgot-password`, `/auth/reset-password`, `/read-later/*`) app'e kayıtlı. Web `vite build` temiz (41 modül). Değişen 8 mobil dosya babel-parse temiz. Migration `ca743bf08dbc` uygulandı. `reembed` 166/166 haber — cosine_distance sorgusu sıralı sonuç döndürdü. ⚠️ Native cihaz testi (kuyruk auto-next, hız hafızası) ve prod SMTP henüz yapılmadı.
 
 ---
 
