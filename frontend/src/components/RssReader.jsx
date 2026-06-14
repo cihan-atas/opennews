@@ -45,6 +45,8 @@ function RssReader() {
   const [communityLoading, setCommunityLoading] = useState(false);
   const [communityFilter, setCommunityFilter] = useState(''); // kategori filtresi
   const [submitUrl, setSubmitUrl] = useState('');
+  const [submitCategory, setSubmitCategory] = useState('');
+  const [categories, setCategories] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   // Liste seçici modal (community feed eklerken)
   const [listPickerFeed, setListPickerFeed] = useState(null); // { url, title }
@@ -65,6 +67,15 @@ function RssReader() {
   }, [toast.show]);
 
   useEffect(() => { fetchLists(); fetchSaved(); }, []);
+
+  useEffect(() => {
+    if (leftTab === 'community' && categories.length === 0) {
+      fetchWithAuth(`${import.meta.env.VITE_API_URL}/categories/`)
+        .then(r => r.ok ? r.json() : [])
+        .then(setCategories)
+        .catch(() => {});
+    }
+  }, [leftTab]);
 
   useEffect(() => {
     if (leftTab === 'community' && communityFeeds.length === 0) fetchCommunity();
@@ -289,15 +300,17 @@ function RssReader() {
   const handleSubmitSource = async (e) => {
     e.preventDefault();
     if (!submitUrl.trim()) return;
+    if (!submitCategory) { showToast('Lütfen bir kategori seçin.', 'error'); return; }
     setSubmitting(true);
     try {
       const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss/submit`, {
         method: 'POST',
-        body: JSON.stringify({ url: submitUrl.trim() }),
+        body: JSON.stringify({ url: submitUrl.trim(), category_id: parseInt(submitCategory) }),
       });
       if (res.ok) {
         showToast('Kaynağın incelemeye alındı!', 'success');
         setSubmitUrl('');
+        setSubmitCategory('');
       } else {
         const err = await res.json();
         showToast(err.detail || 'Gönderilemedi.', 'error');
@@ -641,7 +654,18 @@ function RssReader() {
                   value={submitUrl}
                   onChange={e => setSubmitUrl(e.target.value)}
                 />
-                <button type="submit" disabled={submitting || !submitUrl.trim()} style={{ ...s.btn('primary'), opacity: !submitUrl.trim() ? 0.4 : 1 }}>
+                <select
+                  style={{ ...s.input, fontSize: '0.8rem', padding: '8px 12px', cursor: 'pointer' }}
+                  required
+                  value={submitCategory}
+                  onChange={e => setSubmitCategory(e.target.value)}
+                >
+                  <option value="">— Kategori seç —</option>
+                  {categories.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+                <button type="submit" disabled={submitting || !submitUrl.trim() || !submitCategory} style={{ ...s.btn('primary'), opacity: (!submitUrl.trim() || !submitCategory) ? 0.4 : 1 }}>
                   {submitting ? 'Gönderiliyor...' : '📨 Öneri Gönder'}
                 </button>
               </form>

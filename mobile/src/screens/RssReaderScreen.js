@@ -51,6 +51,8 @@ export default function RssReaderScreen() {
   const [communityLoading, setCommunityLoading] = useState(false);
   const [communityFilter, setCommunityFilter] = useState('');
   const [submitUrl, setSubmitUrl] = useState('');
+  const [submitCategory, setSubmitCategory] = useState(null);
+  const [categories, setCategories] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   // Liste seçici
   const [listPickerFeed, setListPickerFeed] = useState(null); // { url, title }
@@ -219,16 +221,21 @@ export default function RssReaderScreen() {
     try {
       const res = await apiFetch('/rss/approved');
       if (res.ok) setCommunityFeeds(await res.json());
+      if (categories.length === 0) {
+        const catRes = await apiFetch('/categories/');
+        if (catRes.ok) setCategories(await catRes.json());
+      }
     } catch (_) { showToast('Yüklenemedi.', 'error'); }
     finally { setCommunityLoading(false); }
   };
 
   const handleSubmitSource = async () => {
     if (!submitUrl.trim()) return;
+    if (!submitCategory) { showToast('Lütfen bir kategori seçin.', 'error'); return; }
     setSubmitting(true);
     try {
-      const res = await apiFetch('/rss/submit', { method: 'POST', body: JSON.stringify({ url: submitUrl.trim() }) });
-      if (res.ok) { showToast('Kaynağın incelemeye alındı!'); setSubmitUrl(''); }
+      const res = await apiFetch('/rss/submit', { method: 'POST', body: JSON.stringify({ url: submitUrl.trim(), category_id: submitCategory }) });
+      if (res.ok) { showToast('Kaynağın incelemeye alındı!'); setSubmitUrl(''); setSubmitCategory(null); }
       else showToast((await res.json()).detail || 'Gönderilemedi.', 'error');
     } catch (_) { showToast('Bağlantı hatası.', 'error'); }
     finally { setSubmitting(false); }
@@ -585,20 +592,28 @@ export default function RssReaderScreen() {
 
               <View style={{ borderTopWidth: 1, borderTopColor: colors.borderSoft, marginTop: 16, paddingTop: 16 }}>
                 <Text style={{ color: colors.textFaint, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Kaynak Öner</Text>
-                <View style={styles.createRow}>
-                  <TextInput
-                    style={styles.createInput}
-                    placeholder="https://example.com/feed.xml"
-                    placeholderTextColor={colors.textFaint}
-                    autoCapitalize="none"
-                    keyboardType="url"
-                    value={submitUrl}
-                    onChangeText={setSubmitUrl}
-                  />
-                  <Pressable onPress={handleSubmitSource} disabled={submitting || !submitUrl.trim()} style={[styles.addBtn, { opacity: !submitUrl.trim() ? 0.4 : 1 }]}>
-                    <Text style={styles.addBtnText}>{submitting ? '…' : '📨'}</Text>
-                  </Pressable>
-                </View>
+                <TextInput
+                  style={[styles.createInput, { marginBottom: 8 }]}
+                  placeholder="https://example.com/feed.xml"
+                  placeholderTextColor={colors.textFaint}
+                  autoCapitalize="none"
+                  keyboardType="url"
+                  value={submitUrl}
+                  onChangeText={setSubmitUrl}
+                />
+                <Text style={{ color: colors.textFaint, fontSize: 11, fontWeight: '700', marginBottom: 6 }}>Kategori seç *</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                  <View style={{ flexDirection: 'row', gap: 6, paddingVertical: 2 }}>
+                    {categories.map(cat => (
+                      <Pressable key={cat.id} onPress={() => setSubmitCategory(submitCategory === cat.id ? null : cat.id)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: submitCategory === cat.id ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)' }}>
+                        <Text style={{ color: submitCategory === cat.id ? colors.primaryLight : colors.textDim, fontSize: 11, fontWeight: '800' }}>{cat.name}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </ScrollView>
+                <Pressable onPress={handleSubmitSource} disabled={submitting || !submitUrl.trim() || !submitCategory} style={[styles.addBtn, { opacity: (!submitUrl.trim() || !submitCategory) ? 0.4 : 1, alignSelf: 'flex-start', paddingHorizontal: 16 }]}>
+                  <Text style={styles.addBtnText}>{submitting ? '…' : '📨 Öneri Gönder'}</Text>
+                </Pressable>
               </View>
               <View style={{ height: 20 }} />
             </ScrollView>

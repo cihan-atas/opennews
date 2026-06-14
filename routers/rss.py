@@ -25,8 +25,22 @@ class RssAdminAdd(BaseModel):
     category_id: Optional[int] = None
 
 
+class RssApprove(BaseModel):
+    # Admin onaylarken kategoriyi değiştirebilir (None gönderilirse mevcut korunur)
+    category_id: Optional[int] = None
+
+
+def _validate_category(db, category_id):
+    if category_id is None:
+        return
+    exists = db.query(models.NewsCategory).filter(models.NewsCategory.id == category_id).first()
+    if not exists:
+        raise HTTPException(status_code=422, detail="Geçersiz kategori.")
+
+
 @router.post("/submit", status_code=status.HTTP_201_CREATED)
 def submit_rss_source(body: RssSubmit, db: db_dependency, current_user: user_dependency):
+    _validate_category(db, body.category_id)
     source = models.CommunityRssSource(
         url=str(body.url),
         title=body.title,
@@ -47,6 +61,7 @@ def submit_rss_source(body: RssSubmit, db: db_dependency, current_user: user_dep
 def admin_add_source(body: RssAdminAdd, db: db_dependency, current_user: user_dependency):
     """Admin doğrudan onaylı kaynak ekler."""
     _require_admin(current_user)
+    _validate_category(db, body.category_id)
     source = models.CommunityRssSource(
         url=str(body.url),
         title=body.title,
@@ -95,14 +110,26 @@ def list_pending(db: db_dependency, current_user: user_dependency):
 
 
 @router.post("/{source_id}/approve")
-def approve_source(source_id: int, db: db_dependency, current_user: user_dependency):
+def approve_source(source_id: int, db: db_dependency, current_user: user_dependency, body: Optional[RssApprove] = None):
     _require_admin(current_user)
     source = db.query(models.CommunityRssSource).filter(models.CommunityRssSource.id == source_id).first()
     if not source:
         raise HTTPException(status_code=404, detail="Kaynak bulunamadı.")
+    if body and body.category_id is not None:
+        _validate_category(db, body.category_id)
+        source.category_id = body.category_id
     source.status = "approved"
     db.commit()
-    return {"message": "Kaynak onaylandı."}
+    db.refresh(source)
+    return {
+        "message": "Kaynak onaylandı.",
+        "id": source.id,
+        "url": source.url,
+        "title": source.title,
+        "category_id": source.category_id,
+        "category": source.category.name if source.category else None,
+        "status": source.status,
+    }
 
 
 @router.post("/{source_id}/reject")

@@ -14,6 +14,8 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(null);
   const [userProcessing, setUserProcessing] = useState(null);
+  // Bekleyen kaynaklar için admin'in seçtiği kategori (id bazlı override)
+  const [pendingCat, setPendingCat] = useState({});
 
   // Yeni kaynak ekleme formu
   const [addForm, setAddForm] = useState({ url: '', title: '', category_id: '' });
@@ -59,12 +61,17 @@ export default function Admin() {
   const handleApprove = async (id) => {
     setProcessing(id);
     try {
-      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss/${id}/approve`, { method: 'POST' });
+      const chosen = pendingCat[id];
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss/${id}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ category_id: chosen ? parseInt(chosen) : null }),
+      });
       if (res.ok) {
+        const updated = await res.json();
         showToast('Kaynak onaylandı.');
         const item = pending.find(s => s.id === id);
         setPending(p => p.filter(s => s.id !== id));
-        if (item) setApproved(a => [{ ...item, status: 'approved' }, ...a]);
+        if (item) setApproved(a => [{ ...item, status: 'approved', category_id: updated.category_id, category: updated.category }, ...a]);
       } else {
         showToast('İşlem başarısız.', 'error');
       }
@@ -375,10 +382,18 @@ export default function Admin() {
                         >
                           {src.url}
                         </a>
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-                          {src.category && (
-                            <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#818cf8', background: 'rgba(99,102,241,0.12)', padding: '2px 8px', borderRadius: '6px' }}>{src.category}</span>
-                          )}
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <span style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: '700' }}>Kategori:</span>
+                          <select
+                            value={pendingCat[src.id] !== undefined ? pendingCat[src.id] : (src.category_id ?? '')}
+                            onChange={e => setPendingCat(p => ({ ...p, [src.id]: e.target.value }))}
+                            style={{ ...inputStyle, width: 'auto', padding: '5px 10px', fontSize: '0.78rem', cursor: 'pointer' }}
+                          >
+                            <option value="">— Kategorisiz —</option>
+                            {categories.map(c => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
                           <span style={{ color: '#475569', fontSize: '0.75rem' }}>{src.created_at ? new Date(src.created_at).toLocaleString('tr-TR') : ''}</span>
                         </div>
                       </div>

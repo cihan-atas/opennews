@@ -27,6 +27,7 @@ export default function SettingsScreen() {
   const [adminStats, setAdminStats] = useState(null);
   const [pendingRss, setPendingRss] = useState([]);
   const [rssProcessing, setRssProcessing] = useState(null);
+  const [rssCat, setRssCat] = useState({}); // { [id]: category_id } admin override
 
   useEffect(() => {
     if (user?.interests) setSelected(user.interests.map((i) => i.id));
@@ -57,7 +58,14 @@ export default function SettingsScreen() {
   const handleRssDecision = async (id, approve) => {
     setRssProcessing(id);
     try {
-      const res = await apiFetch(`/rss/${id}/${approve ? 'approve' : 'reject'}`, { method: 'POST' });
+      const opts = { method: 'POST' };
+      if (approve) {
+        const chosen = rssCat[id];
+        const src = pendingRss.find((s) => s.id === id);
+        const catId = chosen !== undefined ? chosen : (src ? src.category_id : null);
+        opts.body = JSON.stringify({ category_id: catId ?? null });
+      }
+      const res = await apiFetch(`/rss/${id}/${approve ? 'approve' : 'reject'}`, opts);
       if (res.ok) {
         setPendingRss((p) => p.filter((s) => s.id !== id));
         showToast(approve ? 'Kaynak onaylandı.' : 'Kaynak reddedildi.');
@@ -179,6 +187,19 @@ export default function SettingsScreen() {
                 <View key={src.id} style={{ borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingVertical: 10 }}>
                   {!!src.title && <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>{src.title}</Text>}
                   <Text style={{ color: colors.textDim, fontSize: 12 }} numberOfLines={1}>{src.url}</Text>
+                  <Text style={{ color: colors.textFaint, fontSize: 11, fontWeight: '700', marginTop: 8, marginBottom: 4 }}>Kategori</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={{ flexDirection: 'row', gap: 6, paddingVertical: 2 }}>
+                      {allCategories.map((cat) => {
+                        const active = (rssCat[src.id] !== undefined ? rssCat[src.id] : src.category_id) === cat.id;
+                        return (
+                          <Pressable key={cat.id} onPress={() => setRssCat((p) => ({ ...p, [src.id]: active ? null : cat.id }))} style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: active ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)' }}>
+                            <Text style={{ color: active ? colors.primaryLight : colors.textDim, fontSize: 11, fontWeight: '800' }}>{cat.name}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
                   <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
                     <Pressable
                       onPress={() => handleRssDecision(src.id, true)}
