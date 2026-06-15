@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # --- Sağlayıcı Seçimi ---
     # vertex/google = GCP (ücretli)  |  openrouter/local = ücretsiz önerilen stack
     AI_PROVIDER: str = "vertex"          # vertex | gemini | openai | openrouter | nvidia | mock
-    EMBEDDING_PROVIDER: str = "vertex"   # vertex | openai | local | mock
+    EMBEDDING_PROVIDER: str = "vertex"   # vertex | openai | local | mock | none (none=kapalı, düşük RAM)
     TTS_PROVIDER: str = "google"         # google | edge | polly
     STORAGE_PROVIDER: str = "gcs"        # gcs | s3 | local
 

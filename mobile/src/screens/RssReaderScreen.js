@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View, Text, TextInput, Pressable, FlatList, ScrollView, Modal, StyleSheet,
-  ActivityIndicator, Linking,
+  ActivityIndicator, Linking, Animated, PanResponder,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiFetch } from '../api/client';
@@ -36,6 +36,10 @@ export default function RssReaderScreen() {
   const [newFeedUrl, setNewFeedUrl] = useState('');
   const [addingFeed, setAddingFeed] = useState(false);
   const [showFeedManager, setShowFeedManager] = useState(false);
+  const [renameTarget, setRenameTarget] = useState(null); // { id, name }
+  const [renameValue, setRenameValue] = useState('');
+  const [listMenu, setListMenu] = useState(null); // basılı tutunca açılan liste menüsü
+  const [menuConfirm, setMenuConfirm] = useState(false); // silme onay adımı
 
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFeedFilter, setActiveFeedFilter] = useState(null);
@@ -72,6 +76,23 @@ export default function RssReaderScreen() {
 
   const pollRef = useRef(null);
   const pollTitleRef = useRef(null);
+
+  // Makale modalı: aşağı çekince kapat (tutamaçtan sürükle)
+  const articleY = useRef(new Animated.Value(0)).current;
+  useEffect(() => { if (selectedArticle) articleY.setValue(0); }, [selectedArticle, articleY]);
+  const articlePan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => { if (g.dy > 0) articleY.setValue(g.dy); },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 130 || g.vy > 1.2) {
+          Animated.timing(articleY, { toValue: 800, duration: 200, useNativeDriver: true }).start(() => setSelectedArticle(null));
+        } else {
+          Animated.spring(articleY, { toValue: 0, useNativeDriver: true }).start();
+        }
+      },
+    })
+  ).current;
 
   useEffect(() => {
     fetchLists();
@@ -193,6 +214,24 @@ export default function RssReaderScreen() {
         showToast('Liste silindi.');
       }
     } catch (_) { showToast('Silinemedi.', 'error'); }
+  };
+
+  // Listeye basılı tutunca uygulama-içi menü aç (Android'in sistem dialogu yerine)
+  const handleListLongPress = (lst) => { setListMenu(lst); setMenuConfirm(false); };
+  const closeListMenu = () => { setListMenu(null); setMenuConfirm(false); };
+
+  const renameList = async () => {
+    if (!renameValue.trim() || !renameTarget) return;
+    try {
+      const res = await apiFetch(`/rss-reader/lists/${renameTarget.id}`, { method: 'PATCH', body: JSON.stringify({ name: renameValue.trim() }) });
+      if (res.ok) {
+        const nm = renameValue.trim();
+        setLists((p) => p.map((l) => (l.id === renameTarget.id ? { ...l, name: nm } : l)));
+        if (selectedList?.id === renameTarget.id) setSelectedList((s) => ({ ...s, name: nm }));
+        setRenameTarget(null); setRenameValue('');
+        showToast('Liste adı güncellendi.');
+      } else showToast('Güncellenemedi.', 'error');
+    } catch (_) { showToast('İşlem başarısız.', 'error'); }
   };
 
   const addFeed = async () => {
@@ -415,7 +454,7 @@ export default function RssReaderScreen() {
             {lists.map((lst) => {
               const active = selectedList?.id === lst.id;
               return (
-                <Pressable key={lst.id} onPress={() => selectList(lst)} onLongPress={() => deleteList(lst.id)}
+                <Pressable key={lst.id} onPress={() => selectList(lst)} onLongPress={() => handleListLongPress(lst)}
                   style={[styles.listChip, active && styles.listChipActive]}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: feedColor(lst.name) }} />
                   <Text style={{ color: active ? colors.white : colors.textMuted, fontWeight: active ? '700' : '500' }}>{lst.name}</Text>
@@ -434,7 +473,7 @@ export default function RssReaderScreen() {
         </View>
       ) : (
         <>
-          <View style={styles.toolbar}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.toolbar}>
             <Pressable onPress={() => { setShowSaved(false); setShowTrending(false); loadArticles(selectedList.id); }} disabled={loadingArticles} style={styles.toolBtn}>
               <Text style={{ color: colors.textMuted, fontWeight: '700' }}>{loadingArticles ? '⏳' : '↻'} Yenile</Text>
             </Pressable>
@@ -450,7 +489,7 @@ export default function RssReaderScreen() {
             <Pressable onPress={() => { setShowCommunity(true); if (communityFeeds.length === 0) fetchCommunity(); }} style={[styles.toolBtn, { borderColor: 'rgba(99,102,241,0.3)' }]}>
               <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>🌐 Topluluk</Text>
             </Pressable>
-          </View>
+          </ScrollView>
 
           {articles.length > 0 && (
             <TextInput
@@ -584,6 +623,70 @@ export default function RssReaderScreen() {
         </>
       )}
 
+      {/* Listeye basılı tutunca açılan menü (uygulama-içi) */}
+      <Modal visible={!!listMenu} transparent animationType="fade" onRequestClose={closeListMenu}>
+        <Pressable style={[styles.sheetOverlay, { justifyContent: 'center', padding: 28 }]} onPress={closeListMenu}>
+          <Pressable style={[styles.sheet, { borderRadius: radius.lg, padding: 20 }]} onPress={() => {}}>
+            <Text style={[styles.sheetTitle, { marginBottom: 4 }]} numberOfLines={1}>{listMenu?.name}</Text>
+            {!menuConfirm ? (
+              <>
+                <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 16 }}>Bu liste için ne yapmak istersin?</Text>
+                <Pressable onPress={() => { setRenameValue(listMenu.name); setRenameTarget({ id: listMenu.id, name: listMenu.name }); closeListMenu(); }}
+                  style={[styles.menuItem, { backgroundColor: colors.primarySoft, borderColor: colors.primary }]}>
+                  <Text style={{ color: colors.primaryLight, fontWeight: '700', fontSize: 15 }}>✏️  Yeniden Adlandır</Text>
+                </Pressable>
+                <Pressable onPress={() => setMenuConfirm(true)} style={[styles.menuItem, { borderColor: 'rgba(239,68,68,0.4)' }]}>
+                  <Text style={{ color: colors.error, fontWeight: '700', fontSize: 15 }}>🗑  Sil</Text>
+                </Pressable>
+                <Pressable onPress={closeListMenu} style={[styles.menuItem, { alignItems: 'center', borderColor: 'transparent' }]}>
+                  <Text style={{ color: colors.textMuted, fontWeight: '700', fontSize: 15 }}>Vazgeç</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={{ color: colors.textMuted, fontSize: 14, marginVertical: 14, lineHeight: 20 }}>
+                  "{listMenu?.name}" listesini ve içindeki kaynakları kalıcı olarak silmek istiyor musun?
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <Pressable onPress={() => setMenuConfirm(false)} style={[styles.menuItem, { flex: 1, alignItems: 'center', marginBottom: 0 }]}>
+                    <Text style={{ color: colors.textMuted, fontWeight: '700' }}>Vazgeç</Text>
+                  </Pressable>
+                  <Pressable onPress={() => { const id = listMenu.id; closeListMenu(); deleteList(id); }} style={[styles.menuItem, { flex: 1, alignItems: 'center', marginBottom: 0, backgroundColor: colors.error, borderColor: colors.error }]}>
+                    <Text style={{ color: colors.white, fontWeight: '800' }}>Evet, Sil</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Liste yeniden adlandırma modalı */}
+      <Modal visible={!!renameTarget} transparent animationType="fade" onRequestClose={() => setRenameTarget(null)}>
+        <View style={[styles.sheetOverlay, { justifyContent: 'center', padding: 24 }]}>
+          <View style={[styles.sheet, { borderRadius: radius.lg, padding: 20 }]}>
+            <Text style={styles.sheetTitle}>Listeyi Yeniden Adlandır</Text>
+            <TextInput
+              style={[styles.createInput, { marginTop: 12, color: colors.text, fontSize: 16, minHeight: 50, paddingVertical: 14 }]}
+              value={renameValue}
+              onChangeText={setRenameValue}
+              placeholder="Liste adı"
+              placeholderTextColor={colors.textFaint}
+              autoFocus
+              onSubmitEditing={renameList}
+            />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+              <Pressable onPress={() => { setRenameTarget(null); setRenameValue(''); }} style={[styles.toolBtn, { flex: 1, alignItems: 'center' }]}>
+                <Text style={{ color: colors.textMuted, fontWeight: '700' }}>Vazgeç</Text>
+              </Pressable>
+              <Pressable onPress={renameList} style={[styles.toolBtn, { flex: 1, alignItems: 'center', backgroundColor: colors.primary, borderColor: colors.primary }]}>
+                <Text style={{ color: colors.white, fontWeight: '700' }}>Kaydet</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Feed yönetim modalı */}
       <Modal visible={showFeedManager} transparent animationType="slide" onRequestClose={() => setShowFeedManager(false)}>
         <View style={styles.sheetOverlay}>
@@ -611,7 +714,7 @@ export default function RssReaderScreen() {
                 <View key={f.id} style={styles.feedRow}>
                   <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: feedColor(f.title || f.url) }} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.white, fontWeight: '600' }} numberOfLines={1}>{f.title || f.url}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '600' }} numberOfLines={1}>{f.title || f.url}</Text>
                     {!!f.title && <Text style={{ color: colors.textFaint, fontSize: 11 }} numberOfLines={1}>{f.url}</Text>}
                   </View>
                   <Pressable onPress={() => removeFeed(f.id)} style={styles.removeFeedBtn}>
@@ -663,7 +766,7 @@ export default function RssReaderScreen() {
                       <View key={feed.id} style={styles.feedRow}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: feedColor(feed.url), flexShrink: 0, marginTop: 4 }} />
                         <View style={{ flex: 1 }}>
-                          <Text style={{ color: colors.white, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
                             {feed.title || feed.url}
                           </Text>
                           {!!feed.title && <Text style={{ color: colors.textDim, fontSize: 10, marginTop: 1 }} numberOfLines={1}>{feed.url}</Text>}
@@ -736,7 +839,7 @@ export default function RssReaderScreen() {
                     onPress={() => addFeedToList(list.id, listPickerFeed.url)}
                     style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, marginBottom: 8, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(99,102,241,0.2)', backgroundColor: addingToListId === list.id ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.07)', opacity: addingToListId && addingToListId !== list.id ? 0.5 : 1 }}
                   >
-                    <Text style={{ color: colors.white, fontWeight: '600' }}>{list.name}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '600' }}>{list.name}</Text>
                     {list.feed_count != null && <Text style={{ color: colors.textDim, fontSize: 12 }}>{list.feed_count} kaynak</Text>}
                   </Pressable>
                 ))}
@@ -749,12 +852,15 @@ export default function RssReaderScreen() {
       {/* Makale modalı */}
       <Modal visible={!!selectedArticle} transparent animationType="slide" onRequestClose={() => setSelectedArticle(null)}>
         <View style={styles.sheetOverlay}>
-          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: '92%' }]}>
+          <Animated.View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: '92%', transform: [{ translateY: articleY }] }]}>
+            <View style={{ paddingVertical: 10, alignItems: 'center' }} {...articlePan.panHandlers}>
+              <View style={{ width: 44, height: 5, borderRadius: 3, backgroundColor: colors.textDim, opacity: 0.6 }} />
+            </View>
             <View style={styles.sheetHeader}>
               <Text style={[styles.feedBadge, { color: feedColor(selectedArticle?.feed_title), backgroundColor: `${feedColor(selectedArticle?.feed_title)}22` }]}>
                 {selectedArticle?.feed_title}
               </Text>
-              <Pressable onPress={() => setSelectedArticle(null)} hitSlop={12}><Text style={{ color: colors.textDim, fontSize: 20 }}>✕</Text></Pressable>
+              <Pressable onPress={() => setSelectedArticle(null)} hitSlop={16} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: colors.text, fontSize: 18 }}>✕</Text></Pressable>
             </View>
             <ScrollView>
               <Text style={styles.modalTitle}>{selectedArticle?.title}</Text>
@@ -824,7 +930,7 @@ export default function RssReaderScreen() {
               </View>
               <View style={{ height: 40 }} />
             </ScrollView>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
     </View>
@@ -834,9 +940,9 @@ export default function RssReaderScreen() {
 const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: 16, paddingBottom: 8 },
-  h1: { color: colors.white, fontSize: 24, fontWeight: '900', marginBottom: 12 },
+  h1: { color: colors.text, fontSize: 24, fontWeight: '900', marginBottom: 12 },
   createRow: { flexDirection: 'row', gap: 8 },
-  createInput: { flex: 1, backgroundColor: 'rgba(2,6,23,0.5)', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 10, color: colors.white },
+  createInput: { flex: 1, backgroundColor: 'rgba(2,6,23,0.5)', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 10, color: colors.text },
   addBtn: { paddingHorizontal: 16, justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.primary },
   addBtnText: { color: colors.white, fontWeight: '800', fontSize: 16 },
   listChip: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 9, paddingHorizontal: 14, borderRadius: radius.sm, borderWidth: 1, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.04)' },
@@ -844,22 +950,23 @@ const makeStyles = (colors) => StyleSheet.create({
   listCount: { color: colors.textFaint, fontSize: 11, backgroundColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   toolbar: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
   toolBtn: { paddingVertical: 9, paddingHorizontal: 16, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.05)' },
-  search: { marginHorizontal: 16, backgroundColor: 'rgba(2,6,23,0.5)', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 10, color: colors.white, marginBottom: 4 },
+  search: { marginHorizontal: 16, backgroundColor: 'rgba(2,6,23,0.5)', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 10, color: colors.text, marginBottom: 4 },
   filterChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.05)' },
   trendAction: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.04)' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   article: { backgroundColor: 'rgba(15,23,42,0.5)', borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.md, padding: 16 },
   feedBadge: { fontSize: 11, fontWeight: '800', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, textTransform: 'uppercase', overflow: 'hidden' },
   podcastBadge: { fontSize: 11, fontWeight: '800', color: colors.success, backgroundColor: 'rgba(16,185,129,0.1)', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, overflow: 'hidden', marginLeft: 'auto' },
-  articleTitle: { color: colors.white, fontSize: 16, fontWeight: '700', lineHeight: 22, marginBottom: 6 },
+  articleTitle: { color: colors.text, fontSize: 16, fontWeight: '700', lineHeight: 22, marginBottom: 6 },
   articleSummary: { color: colors.textFaint, fontSize: 13, lineHeight: 19 },
   sheetOverlay: { flex: 1, backgroundColor: 'rgba(2,6,23,0.7)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: 'rgba(10,15,30,0.99)', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, borderWidth: 1, borderColor: colors.border },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  sheetTitle: { color: colors.white, fontSize: 18, fontWeight: '800' },
+  sheetTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
+  menuItem: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 14, paddingHorizontal: 16, marginBottom: 10 },
   feedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: radius.sm, marginBottom: 6 },
   removeFeedBtn: { borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 },
-  modalTitle: { color: colors.white, fontSize: 22, fontWeight: '900', lineHeight: 28, marginBottom: 18 },
+  modalTitle: { color: colors.text, fontSize: 22, fontWeight: '900', lineHeight: 28, marginBottom: 18 },
   summaryCard: { backgroundColor: 'rgba(99,102,241,0.06)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.12)', borderRadius: radius.md, padding: 16, marginBottom: 18 },
   summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   summaryLabel: { color: colors.primaryLight, fontSize: 11, fontWeight: '900', letterSpacing: 1 },

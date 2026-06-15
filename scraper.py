@@ -230,7 +230,13 @@ def scrape_to_db(limit: int = 0) -> dict:
                 continue
 
             print(f"\n[RSS] {source['url']}  →  {cat_name} (id={cat_id})")
-            feed = feedparser.parse(source["url"])
+            # Besleme okuma hatası (ağ kopması, bozuk XML vb.) tüm taramayı öldürmesin;
+            # sadece bu beslemeyi atla ve sıradakine geç.
+            try:
+                feed = feedparser.parse(source["url"])
+            except Exception as feed_e:
+                print(f"    [!] Besleme okunamadı, atlanıyor: {feed_e}")
+                continue
 
             if not feed.entries:
                 print(" Feed boş veya erişilemiyor.")
@@ -262,6 +268,7 @@ def scrape_to_db(limit: int = 0) -> dict:
                     # ---------------------------------------------------
                     continue
 
+                from utils import detect_lang
                 news = models.News(
                     title=title,
                     content=content,
@@ -269,6 +276,7 @@ def scrape_to_db(limit: int = 0) -> dict:
                     source_url=source_url,
                     image_url=extract_image(entry),
                     published_at=extract_published_at(entry),
+                    lang=detect_lang(f"{title} {content}"),
                 )
 
                 # --- KRİTİK NOKTA: HER ADIMDA KAYDET (CHECKPOINT) --- Mükerrer URL'leri önlemek ve ilerlemeyi kaybetmemek için her haber eklendikten sonra commit yapıyoruz.

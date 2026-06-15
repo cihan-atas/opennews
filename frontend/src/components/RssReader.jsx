@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { fetchWithAuth } from '../Utils/api';
 import { useWindowSize } from '../Utils/useWindowSize';
 import { groupCategories } from '../Utils/categoryTree';
@@ -7,6 +8,7 @@ import { usePlayer } from '../contexts/PlayerContext';
 
 function RssReader() {
   const { isMobile } = useWindowSize();
+  const location = useLocation();
   const [lists, setLists] = useState([]);
   const [selectedList, setSelectedList] = useState(null);
   const [articles, setArticles] = useState([]);
@@ -370,6 +372,17 @@ function RssReader() {
       setAudioUrl(null);
     }
   };
+
+  // Dashboard "RSS Gündemi"nden gelen makaleyi uygulama içinde aç
+  useEffect(() => {
+    const incoming = location.state?.openArticle;
+    if (incoming) {
+      handleArticleClick(incoming);
+      // Geri/yenilemede tekrar açılmasın diye state'i temizle
+      window.history.replaceState({}, document.title);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   const handleTranslate = async (lang) => {
     if (activeTranslation === lang) { setActiveTranslation(null); return; }

@@ -161,6 +161,18 @@ def reject_source(source_id: int, db: db_dependency, current_user: user_dependen
     return {"message": "Kaynak reddedildi."}
 
 
+@router.delete("/{source_id}", status_code=status.HTTP_200_OK)
+def delete_source(source_id: int, db: db_dependency, current_user: user_dependency):
+    """Admin bir topluluk RSS kaynağını kalıcı olarak siler (onaylı/bekleyen fark etmez)."""
+    _require_admin(current_user)
+    source = db.query(models.CommunityRssSource).filter(models.CommunityRssSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Kaynak bulunamadı.")
+    db.delete(source)
+    db.commit()
+    return {"message": "Kaynak silindi."}
+
+
 def _approved_list(db):
     items = (
         db.query(models.CommunityRssSource)

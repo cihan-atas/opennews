@@ -18,8 +18,9 @@ function Podcast() {
 
   // Bu sayfadaki tüm podcast'leri sıralı kuyruğa alıp ilkinden başlat.
   const handlePlayAll = () => {
-    if (podcasts.length === 0) return;
-    const tracks = podcasts.map((pod) => ({
+    const playable = podcasts.filter((pod) => !pod.is_archived);
+    if (playable.length === 0) { showToast('Çalınabilir podcast yok.', 'error'); return; }
+    const tracks = playable.map((pod) => ({
       src: pod.audio_url,
       title: pod.title,
       category: pod.news_id ? 'Akış' : 'RSS',
@@ -218,8 +219,8 @@ function Podcast() {
 
                       <div style={{ flex: 1, minWidth: 0, paddingRight: isMobile ? '30px' : '0' }}>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
-                          <span style={{ fontSize: '0.75rem', fontWeight: '900', color: isCurrent ? '#10b981' : '#818cf8', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                            {isCurrent ? 'Şu An Çalıyor' : 'Kayıt Arşivi'}
+                          <span style={{ fontSize: '0.75rem', fontWeight: '900', color: pod.is_archived ? '#ef4444' : (isCurrent ? '#10b981' : '#818cf8'), textTransform: 'uppercase', letterSpacing: '1px' }}>
+                            {pod.is_archived ? '🗑 Silindi (süre doldu)' : (isCurrent ? 'Şu An Çalıyor' : 'Kayıt Arşivi')}
                           </span>
                           <span style={{ fontSize: '0.6rem', fontWeight: '800', padding: '2px 6px', borderRadius: '5px', background: pod.news_id ? 'rgba(99,102,241,0.12)' : 'rgba(245,158,11,0.12)', color: pod.news_id ? '#818cf8' : '#f59e0b', border: `1px solid ${pod.news_id ? 'rgba(99,102,241,0.2)' : 'rgba(245,158,11,0.2)'}` }}>
                             {pod.news_id ? '📡 Akış' : '📰 RSS'}
@@ -233,11 +234,23 @@ function Podcast() {
                     {/* SAĞ KISIM: Butonlar */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: isMobile ? '100%' : 'auto', justifyContent: isMobile ? 'flex-start' : 'flex-end', paddingRight: isMobile ? '0' : '40px' }}>
 
+                      {pod.is_archived ? (
+                        pod.news_id ? (
+                          <button onClick={() => navigate(`/home?open=${pod.news_id}`)} style={styles.playBtn(false)} title="Haberine git ve yeniden oluştur" onMouseOver={e => e.currentTarget.style.transform = 'scale(1.02)'} onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}>
+                            🔁 Yeniden Oluştur
+                          </button>
+                        ) : pod.source_url ? (
+                          <a href={pod.source_url} target="_blank" rel="noopener noreferrer" style={{ ...styles.navBtn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                            🔗 Kaynağa Git
+                          </a>
+                        ) : null
+                      ) : (
                       <button onClick={() => handlePlayToggle(pod)} style={styles.playBtn(isCurrent)} onMouseOver={e => e.currentTarget.style.transform = 'scale(1.02)'} onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}>
                         {isCurrent ? '✕ Kapat' : '▶ Oynat'}
                       </button>
+                      )}
 
-                      {pod.news_id ? (
+                      {!pod.is_archived && (pod.news_id ? (
                         <button onClick={() => navigate(`/home?open=${pod.news_id}`)} style={styles.navBtn} onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'} onMouseOut={e => e.currentTarget.style.background = 'rgba(30, 41, 59, 0.6)'}>
                           📰 Haberi Gör
                         </button>
@@ -245,8 +258,9 @@ function Podcast() {
                         <a href={pod.source_url} target="_blank" rel="noopener noreferrer" style={{ ...styles.navBtn, textDecoration: 'none', textAlign: 'center', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }} onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(245,158,11,0.4)'; e.currentTarget.style.color = '#f59e0b'; }} onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#94a3b8'; }}>
                           🔗 Kaynağa Git
                         </a>
-                      ) : null}
+                      ) : null)}
 
+                      {!pod.is_archived && (
                       <button
                         onClick={() => handleTranscriptClick(pod.id)}
                         style={styles.navBtn}
@@ -254,7 +268,9 @@ function Podcast() {
                         onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.4)'; e.currentTarget.style.color = '#818cf8'; }}
                         onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#cbd5e1'; }}
                       >📝 Transkrip</button>
+                      )}
 
+                      {!pod.is_archived && (
                       <a
                         href={pod.audio_url}
                         download={`${pod.title.replace(/[^a-z0-9]/gi, '_')}.mp3`}
@@ -265,6 +281,7 @@ function Podcast() {
                         onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(16,185,129,0.4)'; e.currentTarget.style.color = '#10b981'; }}
                         onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#cbd5e1'; }}
                       >⬇ İndir</a>
+                      )}
                     </div>
 
                     {/* KALICI SİLME BUTONU */}

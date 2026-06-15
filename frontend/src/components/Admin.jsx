@@ -100,6 +100,25 @@ export default function Admin() {
     }
   };
 
+  const handleDeleteSource = async (id) => {
+    if (!window.confirm('Bu topluluk RSS kaynağını kalıcı olarak silmek istediğine emin misin?')) return;
+    setProcessing(id);
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Kaynak silindi.');
+        setApproved(a => a.filter(s => s.id !== id));
+        setPending(p => p.filter(s => s.id !== id));
+      } else {
+        showToast('Silinemedi.', 'error');
+      }
+    } catch (_) {
+      showToast('Bağlantı hatası.', 'error');
+    } finally {
+      setProcessing(null);
+    }
+  };
+
   const handleAdminAdd = async (e) => {
     e.preventDefault();
     if (!addForm.url.trim()) return;
@@ -454,9 +473,18 @@ export default function Admin() {
                           </a>
                         </div>
                       </div>
-                      {src.category && (
-                        <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#818cf8', background: 'rgba(99,102,241,0.12)', padding: '3px 10px', borderRadius: '7px', flexShrink: 0 }}>{src.category}</span>
-                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                        {src.category && (
+                          <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#818cf8', background: 'rgba(99,102,241,0.12)', padding: '3px 10px', borderRadius: '7px' }}>{src.category}</span>
+                        )}
+                        <button
+                          onClick={() => handleDeleteSource(src.id)}
+                          disabled={processing === src.id}
+                          style={{ padding: '6px 14px', borderRadius: '10px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ef4444', fontWeight: '700', cursor: processing === src.id ? 'not-allowed' : 'pointer', fontSize: '0.82rem', opacity: processing === src.id ? 0.5 : 1 }}
+                          onMouseOver={e => { if (processing !== src.id) e.currentTarget.style.background = 'rgba(239,68,68,0.22)'; }}
+                          onMouseOut={e => e.currentTarget.style.background = 'rgba(239,68,68,0.12)'}
+                        >🗑 Sil</button>
+                      </div>
                     </div>
                   ))}
                 </div>

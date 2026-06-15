@@ -50,6 +50,8 @@ def stream_podcast_audio(podcast_id: int, db: db_dependency, current_user: user_
     ).first()
     if not podcast:
         raise HTTPException(status_code=404, detail="Podcast bulunamadı.")
+    if podcast.is_archived:
+        raise HTTPException(status_code=410, detail="Bu podcast'in ses dosyası silindi. Haberinden yeniden oluşturabilirsin.")
 
     signed_url = get_signed_audio_url(podcast.audio_url)
     return RedirectResponse(url=signed_url, status_code=302)
@@ -64,9 +66,11 @@ def generate_podcast(news_id: int, db: db_dependency, current_user: user_depende
     """
     if length not in ("short", "medium", "long"):
         length = "medium"
+    # Arşivlenmiş (ses dosyası silinmiş) podcast varsa "mevcut" sayma → yeniden üret.
     existing = db.query(models.Podcast).filter(
         models.Podcast.news_id == news_id,
         models.Podcast.user_id == current_user.id,
+        models.Podcast.is_archived == False,  # noqa: E712
     ).first()
     if existing:
         return {"status": "exists", "podcast_id": existing.id}
@@ -85,10 +89,12 @@ def get_podcast_by_news(news_id: int, db: db_dependency, current_user: user_depe
     Belirli bir habere ait podcast'i döner. Yoksa 404.
     Frontend bu endpoint'i polling ile kontrol eder.
     """
+    # Yalnızca aktif (arşivlenmemiş) podcast'i döndür; arşivliyse 404 → kullanıcı yeniden üretebilir.
     podcast = db.query(models.Podcast).filter(
         models.Podcast.news_id == news_id,
         models.Podcast.user_id == current_user.id,
-    ).first()
+        models.Podcast.is_archived == False,  # noqa: E712
+    ).order_by(models.Podcast.created_at.desc()).first()
     if not podcast:
         raise HTTPException(status_code=404, detail="Henüz podcast oluşturulmadı.")
     return podcast

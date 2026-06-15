@@ -63,6 +63,7 @@ class NewsBase(BaseModel):
     image_url: Optional[str] = None
     summary: Optional[str] = None
     published_at: Optional[datetime] = None
+    lang: Optional[str] = None  # haberin orijinal dili ('tr' | 'en')
 
 class NewsCreate(NewsBase):
     content: str
@@ -111,6 +112,7 @@ class PodcastOut(PodcastBase):
     news_id: Optional[int] = None
     source_url: Optional[str] = None
     transcript: Optional[str] = None
+    is_archived: bool = False
     created_at: datetime
 
     class Config:

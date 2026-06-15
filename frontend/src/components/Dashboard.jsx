@@ -261,11 +261,12 @@ export default function Dashboard() {
                     >
                       <span style={{ fontSize: '1.3rem', minWidth: '28px' }}>📰</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <a href={art.link} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
-                          <p style={{ margin: 0, color: 'white', fontWeight: '700', fontSize: '0.95rem', lineHeight: '1.4', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                            {art.title}
-                          </p>
-                        </a>
+                        <p
+                          onClick={() => navigate('/rss-reader', { state: { openArticle: art } })}
+                          style={{ margin: 0, color: 'white', fontWeight: '700', fontSize: '0.95rem', lineHeight: '1.4', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', cursor: 'pointer' }}
+                        >
+                          {art.title}
+                        </p>
                         <div style={{ display: 'flex', gap: '10px', marginTop: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                           {art.feed_title && (
                             <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#34d399', background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
@@ -285,8 +286,8 @@ export default function Dashboard() {
                             {savedLinks.has(art.link) ? '📌 Kaydedildi' : '📌 Kaydet'}
                           </button>
                           <button
-                            onClick={() => navigate('/rss-reader')}
-                            title="RSS Okuyucu'da podcast oluştur"
+                            onClick={() => navigate('/rss-reader', { state: { openArticle: art } })}
+                            title="RSS Okuyucu'da aç ve podcast oluştur"
                             style={{ padding: '7px 14px', borderRadius: '10px', border: '1px solid rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.1)', color: '#818cf8', fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer' }}
                           >
                             🎙 Podcast

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  View, Text, Pressable, FlatList, Modal, StyleSheet, ActivityIndicator, Linking, ScrollView,
+  View, Text, Pressable, FlatList, Modal, StyleSheet, ActivityIndicator, Linking, ScrollView, RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { apiFetch } from '../api/client';
@@ -13,11 +14,13 @@ import { useTheme } from '../contexts/ThemeContext';
 
 export default function PodcastScreen() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   const { track, setTrack, setQueue, clearTrack } = usePlayer();
 
   const handlePlayAll = () => {
-    if (podcasts.length === 0) return;
-    const tracks = podcasts.map((pod) => ({
+    const playable = podcasts.filter((pod) => !pod.is_archived);
+    if (playable.length === 0) { showToast('Çalınabilir podcast yok.', 'error'); return; }
+    const tracks = playable.map((pod) => ({
       src: pod.audio_url,
       title: pod.title,
       category: pod.news_id ? 'Akış' : 'RSS',
@@ -59,6 +62,8 @@ export default function PodcastScreen() {
   }, [page, pageSize, showToast]);
 
   useEffect(() => { fetchPodcasts(); }, [fetchPodcasts]);
+  // Sekmeye her dönüşte güncelle (yeni oluşturulan podcast anında görünsün)
+  useFocusEffect(useCallback(() => { fetchPodcasts(); }, [fetchPodcasts]));
 
   const handlePlayToggle = (pod) => {
     if (track?.src === pod.audio_url) {
@@ -138,35 +143,54 @@ export default function PodcastScreen() {
             <Text style={{ fontSize: 20 }}>{isCurrent ? '🔊' : '🎙️'}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.badge}>{pod.news_id ? '📡 Akış' : '📰 RSS'}</Text>
+            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+              {pod.is_archived && <Text style={[styles.badge, { color: colors.error }]}>🗑 Silindi</Text>}
+              <Text style={styles.badge}>{pod.news_id ? '📡 Akış' : '📰 RSS'}</Text>
+            </View>
             <Text style={styles.cardTitle} numberOfLines={2}>{pod.title}</Text>
             <Text style={styles.cardDate}>{new Date(pod.created_at).toLocaleDateString('tr-TR')}</Text>
           </View>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 }}>
-          <Pressable
-            onPress={() => handlePlayToggle(pod)}
-            style={[styles.playBtn, { backgroundColor: isCurrent ? '#dc2626' : colors.primary }]}
-          >
-            <Text style={styles.playBtnText}>{isCurrent ? '✕ Kapat' : '▶ Oynat'}</Text>
-          </Pressable>
-          {!!pod.source_url && (
-            <Pressable onPress={() => Linking.openURL(pod.source_url)} style={styles.navBtn}>
-              <Text style={{ color: colors.textMuted, fontWeight: '600' }}>🔗 Kaynak</Text>
-            </Pressable>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+          {pod.is_archived ? (
+            <>
+              {pod.news_id ? (
+                <Pressable onPress={() => navigation.navigate('Home', { openNewsId: pod.news_id })} style={[styles.playBtn, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.playBtnText}>🔁 Yeniden Oluştur</Text>
+                </Pressable>
+              ) : !!pod.source_url && (
+                <Pressable onPress={() => Linking.openURL(pod.source_url)} style={styles.navBtn}>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>🔗 Kaynak</Text>
+                </Pressable>
+              )}
+            </>
+          ) : (
+            <>
+              <Pressable
+                onPress={() => handlePlayToggle(pod)}
+                style={[styles.playBtn, { backgroundColor: isCurrent ? '#dc2626' : colors.primary }]}
+              >
+                <Text style={styles.playBtnText}>{isCurrent ? '✕ Kapat' : '▶ Oynat'}</Text>
+              </Pressable>
+              {!!pod.source_url && (
+                <Pressable onPress={() => Linking.openURL(pod.source_url)} style={styles.navBtn}>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>🔗 Kaynak</Text>
+                </Pressable>
+              )}
+              <Pressable onPress={() => handleTranscriptPress(pod.id)} style={styles.navBtn}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>📝 Transkrip</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => handleDownload(pod)}
+                disabled={downloading === pod.id}
+                style={styles.dlBtn}
+              >
+                <Text style={{ color: downloading === pod.id ? colors.textDim : colors.success, fontWeight: '600' }}>
+                  {downloading === pod.id ? '⏳' : '⬇'}
+                </Text>
+              </Pressable>
+            </>
           )}
-          <Pressable onPress={() => handleTranscriptPress(pod.id)} style={styles.navBtn}>
-            <Text style={{ color: colors.textMuted, fontWeight: '600' }}>📝 Transkrip</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => handleDownload(pod)}
-            disabled={downloading === pod.id}
-            style={styles.dlBtn}
-          >
-            <Text style={{ color: downloading === pod.id ? colors.textDim : colors.success, fontWeight: '600' }}>
-              {downloading === pod.id ? '⏳' : '⬇'}
-            </Text>
-          </Pressable>
           <Pressable onPress={() => setToDelete(pod.id)} style={styles.trashBtn}>
             <Text style={{ fontSize: 16 }}>🗑️</Text>
           </Pressable>
@@ -200,6 +224,7 @@ export default function PodcastScreen() {
           data={podcasts}
           keyExtractor={(p) => String(p.id)}
           renderItem={renderItem}
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchPodcasts} tintColor={colors.primaryLight} />}
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 120 }}
           ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
           ListFooterComponent={
@@ -253,7 +278,7 @@ export default function PodcastScreen() {
             <Text style={styles.modalText}>Bu kaydı kütüphaneden kalıcı olarak silmek üzeresin.</Text>
             <View style={{ flexDirection: 'row', gap: 12, marginTop: 20 }}>
               <Pressable onPress={() => setToDelete(null)} disabled={deleting} style={[styles.modalBtn, styles.modalCancel]}>
-                <Text style={{ color: colors.white, fontWeight: '700' }}>Vazgeç</Text>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Vazgeç</Text>
               </Pressable>
               <Pressable onPress={confirmDelete} disabled={deleting} style={[styles.modalBtn, { backgroundColor: colors.error }]}>
                 <Text style={{ color: colors.white, fontWeight: '700' }}>{deleting ? 'Siliniyor…' : 'Sil'}</Text>
@@ -269,7 +294,7 @@ export default function PodcastScreen() {
 const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: 16, paddingBottom: 8 },
-  title: { color: colors.white, fontSize: 26, fontWeight: '800' },
+  title: { color: colors.text, fontSize: 26, fontWeight: '800' },
   subtitle: { color: colors.textMuted, marginTop: 6 },
   playAllBtn: { alignSelf: 'flex-start', marginTop: 14, backgroundColor: colors.primary, borderRadius: radius.sm, paddingVertical: 10, paddingHorizontal: 18 },
   playAllText: { color: colors.white, fontWeight: '700', fontSize: 14 },
@@ -283,7 +308,7 @@ const makeStyles = (colors) => StyleSheet.create({
   },
   icon: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   badge: { color: colors.primaryLight, fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 },
-  cardTitle: { color: colors.white, fontSize: 16, fontWeight: '700', marginVertical: 4 },
+  cardTitle: { color: colors.text, fontSize: 16, fontWeight: '700', marginVertical: 4 },
   cardDate: { color: colors.textDim, fontSize: 12 },
   playBtn: { paddingVertical: 10, paddingHorizontal: 18, borderRadius: radius.sm },
   playBtnText: { color: colors.white, fontWeight: '700' },
@@ -302,7 +327,7 @@ const makeStyles = (colors) => StyleSheet.create({
   pageBtnText: { color: colors.white, fontWeight: '700' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(2,6,23,0.85)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   modalBox: { backgroundColor: colors.card, borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', borderRadius: radius.xl, padding: 28, width: '100%', maxWidth: 420 },
-  modalTitle: { color: colors.white, fontSize: 20, fontWeight: '800', textAlign: 'center', marginTop: 12 },
+  modalTitle: { color: colors.text, fontSize: 20, fontWeight: '800', textAlign: 'center', marginTop: 12 },
   modalText: { color: colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 20 },
   modalBtn: { flex: 1, paddingVertical: 14, borderRadius: radius.sm, alignItems: 'center' },
   modalCancel: { borderWidth: 1, borderColor: colors.border },

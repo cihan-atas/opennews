@@ -3,7 +3,7 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from celery import Celery
 from config import settings
-from utils import upload_to_gcs, get_embedding
+from utils import upload_to_gcs, get_embedding, embeddings_enabled, delete_from_gcs
 import services.ai as ai_service
 import services.tts as tts_service
 import services.push as push_service
@@ -35,6 +35,35 @@ PODCAST_LENGTHS = {
 def _length_range(length: str):
     lo, hi, _label = PODCAST_LENGTHS.get(length or "medium", PODCAST_LENGTHS["medium"])
     return lo, hi
+
+
+# Kullanıcı başına tutulacak en fazla aktif (ses dosyası olan) podcast sayısı.
+MAX_ACTIVE_PODCASTS = 20
+
+
+def _enforce_podcast_cap(db, user_id: int, limit: int = MAX_ACTIVE_PODCASTS) -> None:
+    """Kullanıcının aktif podcast sayısı limiti aşarsa en eskilerin ses dosyasını siler
+    ve kaydı arşivler (is_archived=True). Kayıt listede kalır; kullanıcı haberine gidip
+    yeniden oluşturabilir."""
+    try:
+        active = (
+            db.query(models.Podcast)
+            .filter(models.Podcast.user_id == user_id, models.Podcast.is_archived == False)  # noqa: E712
+            .order_by(models.Podcast.created_at.desc())
+            .all()
+        )
+        for old in active[limit:]:
+            try:
+                if old.audio_url:
+                    delete_from_gcs(old.audio_url)
+            except Exception as e:
+                print(f"[Cap] Ses dosyası silinemedi (podcast {old.id}): {e}")
+            old.is_archived = True
+            old.transcript = None  # yer kaplamasın; yeniden oluşturulunca tekrar üretilir
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[Cap] Podcast üst sınırı uygulanırken hata: {e}")
 
 @celery_app.task(name="process_news_and_tts", queue="ai_queue")
 def process_news_and_tts_task(news_id: int, user_id: int, length: str = "medium"):
@@ -79,12 +108,13 @@ def process_news_and_tts_task(news_id: int, user_id: int, length: str = "medium"
         summary = ai_service.generate(tts_prompt, quality=True)
         print(f"[Worker] TTS senaryosu oluşturuldu ({len(summary.split())} kelime).")
 
-        # Embedding üret ve kaydet (başlık + içerik)
-        print("[Worker] Embedding üretiliyor...")
-        embedding_text = f"{news.title}\n\n{news.content}"
-        news.embedding = get_embedding(embedding_text, task_type="retrieval_document")
-        db.commit()
-        print("[Worker] Embedding kaydedildi.")
+        # Embedding üret ve kaydet (başlık + içerik) — kapalıysa atla
+        if embeddings_enabled():
+            print("[Worker] Embedding üretiliyor...")
+            embedding_text = f"{news.title}\n\n{news.content}"
+            news.embedding = get_embedding(embedding_text, task_type="retrieval_document")
+            db.commit()
+            print("[Worker] Embedding kaydedildi.")
 
         # 3. Metni Türkçe/İngilizce segmentlere böl
         print("[Worker] Dil segmentasyonu yapılıyor...")
@@ -118,6 +148,7 @@ def process_news_and_tts_task(news_id: int, user_id: int, length: str = "medium"
         db.add(podcast)
         db.commit()
         print(f"[Worker] Podcast kaydedildi — ID: {podcast.id}, süre: {duration_seconds}s")
+        _enforce_podcast_cap(db, user_id)
 
         # Push bildirim gönder (kullanıcının kayıtlı token'ları varsa)
         _notify_user(db, user_id, news.title)
@@ -143,9 +174,15 @@ def auto_generate_summaries_and_embeddings_task():
     db = SessionLocal()
     try:
         # 🎯 UTKU (Kurşun Geçirmez Jüri Ayarı): Ağ kopmalarını önlemek için yükü 500 ile kesip en tazeden sıralıyoruz.
-        unprocessed_news = db.query(models.News).filter(
-            (models.News.summary.is_(None)) | (models.News.embedding.is_(None))
-        ).order_by(models.News.created_at.desc()).limit(500).all()
+        # Embedding kapalıysa yalnızca özeti eksik olanları seç (embedding hep None kalacağı için
+        # aksi halde her turda tüm haberler boşuna yeniden taranır).
+        if embeddings_enabled():
+            missing = (models.News.summary.is_(None)) | (models.News.embedding.is_(None))
+        else:
+            missing = models.News.summary.is_(None)
+        unprocessed_news = db.query(models.News).filter(missing).order_by(
+            models.News.created_at.desc()
+        ).limit(500).all()
 
         if not unprocessed_news:
             print("[AI Pipeline] Özetlenecek eksik haber bulunamadı.")
@@ -168,7 +205,7 @@ def auto_generate_summaries_and_embeddings_task():
                     db.commit()
 
                 # 2. Eğer semantik arama embedding'i yoksa onu da aradan çıkart reis
-                if news.embedding is None:
+                if embeddings_enabled() and news.embedding is None:
                     print(f"[AI Pipeline] '{news.title[:50]}' için vektör embedding üretiliyor...")
                     embedding_text = f"{news.title}\n\n{news.content}"
                     news.embedding = get_embedding(embedding_text, task_type="retrieval_document")
@@ -230,6 +267,7 @@ def process_rss_article_tts_task(title: str, content: str, user_id: int, source_
         db.add(podcast)
         db.commit()
         print(f"[Worker] RSS Podcast kaydedildi — ID: {podcast.id}")
+        _enforce_podcast_cap(db, user_id)
 
         _notify_user(db, user_id, title)
 
@@ -322,6 +360,7 @@ def process_bulletin_tts_task(news_ids: list, user_id: int, title: str):
         db.add(podcast)
         db.commit()
         print(f"[Bulletin] Podcast kaydedildi — ID: {podcast.id}")
+        _enforce_podcast_cap(db, user_id)
 
         _notify_user(db, user_id, title)
         return {"status": "success", "podcast_id": podcast.id}

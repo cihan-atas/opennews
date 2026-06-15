@@ -109,7 +109,7 @@ FEED_CATALOG = {
         ("Habertürk Gündem", "https://www.haberturk.com/rss/kategori/gundem.xml"),
     ],
     "Diğer": [
-        ("NTV Yaşam", "https://www.ntv.com.tr/yasam.rss"),
+        ("CNN Türk", "https://www.cnnturk.com/feed/rss/all/news"),
     ],
     # ── Güçlü alt kategoriler ──────────────────────────────────────
     "Yapay Zeka": [
@@ -235,6 +235,41 @@ FEED_CATALOG = {
     ],
     "Tarifler": [
         ("Nefis Yemek Tarifleri", "https://www.nefisyemektarifleri.com/feed/"),
+    ],
+    # ── Ek alt kategoriler (doğrulanmış, EN kaynaklar — boş kategorileri doldurur) ──
+    # Bilim alt dalları (ScienceDaily konu beslemeleri)
+    "Fizik": [("ScienceDaily Physics", "https://www.sciencedaily.com/rss/matter_energy/physics.xml")],
+    "Biyoloji": [("ScienceDaily Biology", "https://www.sciencedaily.com/rss/plants_animals/biology.xml")],
+    "Kimya": [("ScienceDaily Chemistry", "https://www.sciencedaily.com/rss/matter_energy/chemistry.xml")],
+    "Genetik": [("ScienceDaily Genetics", "https://www.sciencedaily.com/rss/plants_animals/genetics.xml")],
+    "Nörobilim": [("ScienceDaily Neuroscience", "https://www.sciencedaily.com/rss/mind_brain/neuroscience.xml")],
+    "Arkeoloji": [("ScienceDaily Archaeology", "https://www.sciencedaily.com/rss/fossils_ruins/archaeology.xml")],
+    "Matematik": [("ScienceDaily Mathematics", "https://www.sciencedaily.com/rss/computers_math/mathematics.xml")],
+    "Paleontoloji": [("ScienceDaily Ancient DNA", "https://www.sciencedaily.com/rss/fossils_ruins/ancient_dna.xml")],
+    "Çevre Bilimi": [("ScienceDaily Environment", "https://www.sciencedaily.com/rss/earth_climate/environmental_science.xml")],
+    # Dünya bölgeleri (Guardian)
+    "Afrika": [("Guardian Africa", "https://www.theguardian.com/world/africa/rss")],
+    "Asya & Pasifik": [("Guardian Asia Pacific", "https://www.theguardian.com/world/asia-pacific/rss")],
+    "Latin Amerika": [("Guardian Americas", "https://www.theguardian.com/world/americas/rss")],
+    "Göç & Mülteciler": [("Guardian Migration", "https://www.theguardian.com/world/migration/rss")],
+    # Kültür-Sanat alt dalları (Guardian)
+    "Tiyatro": [("Guardian Stage", "https://www.theguardian.com/stage/rss")],
+    "Fotoğrafçılık": [("Guardian Photography", "https://www.theguardian.com/artanddesign/photography/rss")],
+    "Mimari": [("Guardian Architecture", "https://www.theguardian.com/artanddesign/architecture/rss")],
+    "Resim & Heykel": [("Guardian Art & Design", "https://www.theguardian.com/artanddesign/rss")],
+    # Magazin / Medya
+    "Moda & Güzellik": [("Vogue", "https://www.vogue.com/feed/rss")],
+    "Diziler & Realiteler": [("Variety TV", "https://variety.com/v/tv/feed/")],
+    # Gastronomi / Ekonomi / Otomobil / Hukuk
+    "Dünya Mutfakları": [("Guardian Food", "https://www.theguardian.com/food/rss")],
+    "Şirket Haberleri": [("Guardian Companies", "https://www.theguardian.com/business/companies/rss")],
+    "Motosiklet": [("RideApart", "https://www.rideapart.com/rss/news/all/")],
+    "Otonom Araçlar": [("The Verge Transportation", "https://www.theverge.com/rss/transportation/index.xml")],
+    "Suç & Asayiş": [("Guardian UK Crime", "https://www.theguardian.com/uk/ukcrime/rss")],
+    "Burç & Astroloji": [
+        ("Hürriyet Astroloji", "https://www.hurriyet.com.tr/rss/astroloji"),
+        ("Milliyet Astroloji", "https://www.milliyet.com.tr/rss/rssnew/astrolojirss.xml"),
+        ("Posta Astroloji", "https://www.posta.com.tr/rss/astroloji.xml"),
     ],
 }
 

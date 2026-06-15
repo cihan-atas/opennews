@@ -14,12 +14,26 @@ from config import settings
 _VERTEX_MODEL = "publishers/google/models/text-embedding-005"
 _DIM = 768
 
+# Embedding'i tamamen kapatan değerler (düşük-RAM sunucular için).
+# Kapalıyken model yüklenmez; arama anahtar-kelimeye düşer, "Benzer Haberler" boş döner.
+_DISABLED = {"none", "off", "disabled", "false", ""}
+
 # Yerel model singleton — ilk çağrıda yüklenir, sonrakinde cache'den gelir.
 _local_model = None
 
 
+class EmbeddingDisabled(RuntimeError):
+    """EMBEDDING_PROVIDER kapalı olduğunda atılır; çağıranlar kelime aramasına düşer."""
+
+
+def embeddings_enabled() -> bool:
+    return (settings.EMBEDDING_PROVIDER or "").strip().lower() not in _DISABLED
+
+
 def embed(text: str, task_type: str = "retrieval_document") -> list[float]:
-    provider = settings.EMBEDDING_PROVIDER
+    provider = (settings.EMBEDDING_PROVIDER or "").strip().lower()
+    if provider in _DISABLED:
+        raise EmbeddingDisabled("Embedding devre dışı (EMBEDDING_PROVIDER kapalı).")
     if provider == "openai":
         return _openai_embed(text)
     if provider == "local":

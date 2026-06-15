@@ -4,6 +4,7 @@ import {
   ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { apiFetch } from '../api/client';
 import { useToast, Toast } from '../components/Toast';
 import NewsDetailModal from '../components/NewsDetailModal';
@@ -17,6 +18,8 @@ const SEARCH_HISTORY_KEY = 'searchHistory';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const route = useRoute();
+  const navigation = useNavigation();
   const { toast, showToast } = useToast();
   const { colors } = useTheme();
   const { setTrack } = usePlayer();
@@ -210,6 +213,16 @@ export default function HomeScreen() {
     } catch (_) {}
   };
 
+  // Podcast ekranından "Yeniden Oluştur" ile gelindiğinde ilgili haberi aç.
+  useEffect(() => {
+    const id = route.params?.openNewsId;
+    if (id) {
+      openNews(id);
+      navigation.setParams({ openNewsId: undefined });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params?.openNewsId]);
+
   const acceptSuggestion = async () => {
     if (!suggestion) return;
     try {
@@ -382,7 +395,7 @@ export default function HomeScreen() {
 
 const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  h1: { color: colors.white, fontSize: 30, fontWeight: '900', paddingHorizontal: 0, marginTop: 8 },
+  h1: { color: colors.text, fontSize: 30, fontWeight: '900', paddingHorizontal: 0, marginTop: 8 },
   sub: { color: colors.textMuted, fontSize: 15, marginTop: 6, marginBottom: 18 },
   searchRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
   historyBox: { backgroundColor: colors.surfaceAlpha, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.md, padding: 6, marginTop: -8, marginBottom: 18 },
@@ -391,7 +404,7 @@ const makeStyles = (colors) => StyleSheet.create({
   historyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10, paddingVertical: 10 },
   search: {
     flex: 1, backgroundColor: 'rgba(15,23,42,0.4)', borderWidth: 1, borderColor: colors.border,
-    borderRadius: radius.md, paddingHorizontal: 18, paddingVertical: 12, color: colors.white,
+    borderRadius: radius.md, paddingHorizontal: 18, paddingVertical: 12, color: colors.text,
   },
   refreshBtn: {
     width: 48, height: 48, borderRadius: 24, borderWidth: 1, borderColor: colors.border,
@@ -407,11 +420,11 @@ const makeStyles = (colors) => StyleSheet.create({
   trendLabel: { color: colors.warning, fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 },
   trendCard: { width: 240, backgroundColor: 'rgba(245,158,11,0.05)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)', borderRadius: radius.md, padding: 16 },
   trendCat: { color: colors.warning, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
-  trendTitle: { color: colors.white, fontWeight: '700', fontSize: 14, marginTop: 8, lineHeight: 19 },
+  trendTitle: { color: colors.text, fontWeight: '700', fontSize: 14, marginTop: 8, lineHeight: 19 },
   card: { backgroundColor: colors.surfaceAlpha, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.xl, padding: 20 },
   cardCat: { color: colors.primaryLight, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
   cardMeta: { color: colors.textFaint, fontSize: 11 },
-  cardTitle: { color: colors.white, fontSize: 19, fontWeight: '800', marginVertical: 12, lineHeight: 25 },
+  cardTitle: { color: colors.text, fontSize: 19, fontWeight: '800', marginVertical: 12, lineHeight: 25 },
   cardSummary: { color: colors.textMuted, lineHeight: 22 },
   empty: { color: colors.textMuted, textAlign: 'center', marginTop: 40 },
   pager: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, paddingVertical: 24 },

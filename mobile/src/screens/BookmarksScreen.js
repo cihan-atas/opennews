@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, Pressable, FlatList, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, FlatList, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { apiFetch } from '../api/client';
 import { useToast, Toast } from '../components/Toast';
 import NewsDetailModal from '../components/NewsDetailModal';
@@ -38,6 +39,8 @@ export default function BookmarksScreen() {
   }, [page, showToast]);
 
   useEffect(() => { fetchBookmarks(); }, [fetchBookmarks]);
+  // Sekmeye her dönüşte güncelle (yeni kaydedilenler anında görünsün)
+  useFocusEffect(useCallback(() => { fetchBookmarks(); }, [fetchBookmarks]));
 
   const handleRemove = async (newsId) => {
     try {
@@ -86,6 +89,7 @@ export default function BookmarksScreen() {
           data={bookmarks}
           keyExtractor={(b) => String(b.id)}
           renderItem={renderItem}
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchBookmarks} tintColor={colors.primaryLight} />}
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 120 }}
           ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
           ListFooterComponent={
@@ -112,12 +116,12 @@ export default function BookmarksScreen() {
 const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: 16, paddingBottom: 8 },
-  h1: { color: colors.white, fontSize: 26, fontWeight: '900' },
+  h1: { color: colors.text, fontSize: 26, fontWeight: '900' },
   sub: { color: colors.textMuted, marginTop: 6 },
   empty: { alignItems: 'center', marginTop: 80 },
   card: { backgroundColor: colors.surfaceAlpha, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.lg, padding: 18 },
   cat: { color: colors.primaryLight, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
-  title: { color: colors.white, fontSize: 17, fontWeight: '800', marginVertical: 10, lineHeight: 23 },
+  title: { color: colors.text, fontSize: 17, fontWeight: '800', marginVertical: 10, lineHeight: 23 },
   summary: { color: colors.textMuted, fontSize: 14, lineHeight: 20, marginBottom: 14 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   date: { color: colors.textFaint, fontSize: 12 },

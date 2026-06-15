@@ -112,7 +112,7 @@ export default function OnboardingScreen() {
 const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   scroll: { padding: 24, paddingBottom: 40 },
-  title: { color: colors.white, fontSize: 30, fontWeight: '800', marginTop: 16 },
+  title: { color: colors.text, fontSize: 30, fontWeight: '800', marginTop: 16 },
   subtitle: { color: colors.textMuted, fontSize: 15, marginTop: 10, marginBottom: 24 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   chip: {

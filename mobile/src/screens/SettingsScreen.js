@@ -250,12 +250,12 @@ export default function SettingsScreen({ navigation }) {
 
 const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  h1: { color: colors.white, fontSize: 28, fontWeight: '900', marginBottom: 20 },
+  h1: { color: colors.text, fontSize: 28, fontWeight: '900', marginBottom: 20 },
   section: { backgroundColor: colors.surfaceAlpha, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.xl, padding: 22, marginBottom: 18 },
-  sectionTitle: { color: colors.white, fontSize: 18, fontWeight: '800', marginBottom: 16 },
+  sectionTitle: { color: colors.text, fontSize: 18, fontWeight: '800', marginBottom: 16 },
   fieldLabel: { color: colors.textDim, fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
-  fieldValue: { color: colors.white, fontSize: 18, fontWeight: '600', marginTop: 6 },
-  input: { backgroundColor: 'rgba(2,6,23,0.5)', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 16, paddingVertical: 12, color: colors.white, marginBottom: 12 },
+  fieldValue: { color: colors.text, fontSize: 18, fontWeight: '600', marginTop: 6 },
+  input: { backgroundColor: 'rgba(2,6,23,0.5)', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 16, paddingVertical: 12, color: colors.text, marginBottom: 12 },
   primaryBtn: { backgroundColor: colors.primary, borderRadius: radius.sm, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
   primaryBtnText: { color: colors.white, fontWeight: '700' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
@@ -265,7 +265,7 @@ const makeStyles = (colors) => StyleSheet.create({
   dangerBtn: { borderWidth: 1, borderColor: colors.error, borderRadius: radius.sm, paddingVertical: 13, alignItems: 'center' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(2,6,23,0.85)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   modalBox: { backgroundColor: colors.card, borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', borderRadius: radius.xl, padding: 28, width: '100%', maxWidth: 420 },
-  modalTitle: { color: colors.white, fontSize: 20, fontWeight: '800', textAlign: 'center', marginTop: 12 },
+  modalTitle: { color: colors.text, fontSize: 20, fontWeight: '800', textAlign: 'center', marginTop: 12 },
   modalText: { color: colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 20 },
   modalBtn: { flex: 1, paddingVertical: 14, borderRadius: radius.sm, alignItems: 'center' },
   statCard: {

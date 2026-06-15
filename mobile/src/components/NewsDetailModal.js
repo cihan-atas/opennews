@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  View, Text, Pressable, Modal, ScrollView, StyleSheet, ActivityIndicator, Linking, Share,
+  View, Text, Pressable, Modal, ScrollView, StyleSheet, ActivityIndicator, Linking, Share, Animated, PanResponder,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
@@ -22,16 +22,34 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
   const [news, setNews] = useState(null);
   const [loading, setLoading] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
-  const [readLater, setReadLater] = useState(false);
   const [related, setRelated] = useState([]);
   const [feedback, setFeedback] = useState(null);
   const [podcastStatus, setPodcastStatus] = useState('idle'); // idle | processing | ready
   const [showLengthPicker, setShowLengthPicker] = useState(false);
-  const [lang, setLang] = useState('tr');
+  const [lang, setLang] = useState('orig'); // görünüm: 'orig' | 'tr' | 'en'
   const [translated, setTranslated] = useState(null);
+  const [translatedContent, setTranslatedContent] = useState(null);
+  const [translatedLang, setTranslatedLang] = useState(null);
   const [translating, setTranslating] = useState(false);
 
   const pollRef = useRef(null);
+
+  // Aşağı çekince kapatma (tutamaçtan sürükle)
+  const translateY = useRef(new Animated.Value(0)).current;
+  useEffect(() => { if (visible) translateY.setValue(0); }, [visible, translateY]);
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => { if (g.dy > 0) translateY.setValue(g.dy); },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 130 || g.vy > 1.2) {
+          Animated.timing(translateY, { toValue: 800, duration: 200, useNativeDriver: true }).start(() => onClose());
+        } else {
+          Animated.spring(translateY, { toValue: 0, useNativeDriver: true }).start();
+        }
+      },
+    })
+  ).current;
 
   useEffect(() => { setActiveId(newsId); }, [newsId]);
 
@@ -41,27 +59,26 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
 
   const loadNews = useCallback(async (id) => {
     setLoading(true);
-    setNews(null); setRelated([]); setFeedback(null); setReadLater(false);
-    setTranslated(null); setLang('tr'); setPodcastStatus('idle'); setShowLengthPicker(false);
+    setNews(null); setRelated([]); setFeedback(null);
+    setTranslated(null); setTranslatedContent(null); setTranslatedLang(null); setLang('orig'); setPodcastStatus('idle'); setShowLengthPicker(false);
     try {
-      const [detailRes, podRes, bmRes, relRes, fbRes, rlRes] = await Promise.all([
+      const [detailRes, podRes, bmRes, relRes, fbRes] = await Promise.all([
         apiFetch(`/news/${id}`),
         apiFetch(`/podcast/by-news/${id}`),
         apiFetch(`/bookmarks/check/${id}`),
         apiFetch(`/news/${id}/related`),
         apiFetch(`/news/${id}/feedback/mine`),
-        apiFetch(`/read-later/check/${id}`),
       ]);
 
       let detail = null;
       if (detailRes.ok) { detail = await detailRes.json(); setNews(detail); }
+      // Podcast varsa sadece durumu işaretle; oynatıcıyı otomatik ele geçirme
+      // (modal açılışında setTrack çağırmak gereksiz re-render/flicker'a yol açıyordu).
       if (podRes.ok) {
-        const pod = await podRes.json();
+        await podRes.json();
         setPodcastStatus('ready');
-        setTrack(pod.audio_url, detail?.title, detail?.category?.name, false, pod.id);
       }
       if (bmRes.ok) setBookmarked((await bmRes.json()).bookmarked);
-      if (rlRes.ok) setReadLater((await rlRes.json()).in_read_later);
       if (relRes.ok) setRelated(await relRes.json());
       if (fbRes.ok) setFeedback((await fbRes.json()).rating);
     } catch (_) {
@@ -69,7 +86,7 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
     } finally {
       setLoading(false);
     }
-  }, [setTrack, showToast]);
+  }, [showToast]);
 
   useEffect(() => {
     if (visible && activeId) loadNews(activeId);
@@ -86,15 +103,6 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
     } catch (_) { showToast('İşlem başarısız.', 'error'); }
   };
 
-  const toggleReadLater = async () => {
-    try {
-      const res = await apiFetch(`/read-later/${activeId}`, { method: readLater ? 'DELETE' : 'POST' });
-      if (res.ok) {
-        setReadLater((p) => !p);
-        showToast(readLater ? 'Sonra oku listesinden kaldırıldı.' : 'Sonra oku listesine eklendi! 📑');
-      }
-    } catch (_) { showToast('İşlem başarısız.', 'error'); }
-  };
 
   const submitFeedback = async (rating) => {
     try {
@@ -106,15 +114,20 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
     } catch (_) {}
   };
 
-  const handleTranslate = async (target) => {
-    if (target === 'tr') { setLang('tr'); return; }
-    if (lang === target && translated) return;
-    setLang(target);
+  const handleTranslate = async (mode) => {
+    setLang(mode);
+    if (mode === 'orig') return;           // orijinali göster
+    if (translatedLang === mode) return;   // zaten getirilmiş
     setTranslating(true);
     try {
-      const res = await apiFetch(`/news/${activeId}/translate?lang=${target}`);
-      if (res.ok) setTranslated((await res.json()).translated);
-    } catch (_) { showToast('Çeviri başarısız.', 'error'); setLang('tr'); }
+      const res = await apiFetch(`/news/${activeId}/translate?lang=${mode}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTranslated(data.summary ?? null);
+        setTranslatedContent(data.content ?? null);
+        setTranslatedLang(mode);
+      }
+    } catch (_) { showToast('Çeviri başarısız.', 'error'); setLang('orig'); }
     finally { setTranslating(false); }
   };
 
@@ -162,16 +175,20 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
     }
   };
 
-  const summaryText = lang === 'en' && translated ? translated : news?.summary;
+  const summaryText = lang === 'orig' ? news?.summary : (translated ?? news?.summary);
+  const contentText = lang === 'orig' ? news?.content : (translatedContent ?? news?.content);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { paddingTop: insets.top + 8, paddingBottom: insets.bottom }]}>
+        <Animated.View style={[styles.sheet, { paddingTop: insets.top + 8, paddingBottom: insets.bottom, transform: [{ translateY }] }]}>
           <Toast toast={toast} />
           <View style={styles.handleRow}>
-            <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-              <Text style={{ color: colors.textDim, fontSize: 22 }}>✕</Text>
+            <View style={styles.grabZone} {...panResponder.panHandlers}>
+              <View style={styles.grabber} />
+            </View>
+            <Pressable onPress={onClose} hitSlop={16} style={styles.closeBtn}>
+              <Text style={{ color: colors.text, fontSize: 20 }}>✕</Text>
             </Pressable>
           </View>
 
@@ -182,19 +199,24 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
               {!!news.category?.name && <Text style={styles.category}>{news.category.name}</Text>}
               <Text style={styles.title}>{news.title}</Text>
 
+              {/* Dil seçimi: Orijinal / TR / EN (haberin orijinal diline göre çevirir) */}
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                {!!news.lang && <Text style={{ color: colors.textFaint, fontSize: 11, fontWeight: '700' }}>Orijinal: {news.lang.toUpperCase()}</Text>}
+                <View style={styles.langToggle}>
+                  {[{ c: 'orig', l: 'Orijinal' }, { c: 'tr', l: '🇹🇷 TR' }, { c: 'en', l: '🇬🇧 EN' }].map(({ c, l }) => (
+                    <Pressable key={c} onPress={() => handleTranslate(c)} disabled={translating}
+                      style={[styles.langBtn, lang === c && { backgroundColor: colors.primarySoft }]}>
+                      <Text style={{ color: lang === c ? colors.primaryLight : colors.textFaint, fontWeight: '800', fontSize: 12 }}>{l}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
               {!!news.summary && (
                 <View style={styles.summaryCard}>
                   <View style={styles.summaryHeader}>
                     <Text style={styles.summaryLabel}>AI ÖZET</Text>
                     <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                      <View style={styles.langToggle}>
-                        {[{ c: 'tr', l: '🇹🇷' }, { c: 'en', l: '🇬🇧' }].map(({ c, l }) => (
-                          <Pressable key={c} onPress={() => handleTranslate(c)} disabled={translating}
-                            style={[styles.langBtn, lang === c && { backgroundColor: colors.primarySoft }]}>
-                            <Text style={{ color: lang === c ? colors.primaryLight : colors.textFaint, fontWeight: '800', fontSize: 12 }}>{l}</Text>
-                          </Pressable>
-                        ))}
-                      </View>
                       <Pressable onPress={() => submitFeedback('up')} style={[styles.fbBtn, feedback === 'up' && { borderColor: colors.success }]}>
                         <Text>👍</Text>
                       </Pressable>
@@ -207,7 +229,7 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
                 </View>
               )}
 
-              <Text style={styles.content}>{news.content}</Text>
+              <Text style={styles.content}>{translating ? 'Çevriliyor…' : contentText}</Text>
 
               <View style={styles.actions}>
                 {podcastStatus === 'idle' && !showLengthPicker && (
@@ -248,19 +270,13 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
                   </Text>
                 </Pressable>
 
-                <Pressable onPress={toggleReadLater} style={[styles.outlineBtn, readLater && { borderColor: colors.primaryLight }]}>
-                  <Text style={{ color: readLater ? colors.primaryLight : colors.textMuted, fontWeight: '600' }}>
-                    {readLater ? '📑 Kuyrukta' : '📑 Sonra Oku'}
-                  </Text>
-                </Pressable>
-
                 <Pressable onPress={handleShare} style={styles.outlineBtn}>
-                  <Text style={{ color: colors.textMuted, fontWeight: '600' }}>↑ Paylaş</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>↑ Paylaş</Text>
                 </Pressable>
 
                 {!!news.source_url && (
-                  <Pressable onPress={() => Linking.openURL(news.source_url)} style={styles.outlineBtn}>
-                    <Text style={{ color: colors.textMuted, fontWeight: '600' }}>Kaynağa Git →</Text>
+                  <Pressable onPress={() => Linking.openURL(news.source_url)} style={[styles.outlineBtn, { backgroundColor: colors.primarySoft, borderColor: colors.primary }]}>
+                    <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>Kaynağa Git →</Text>
                   </Pressable>
                 )}
               </View>
@@ -278,7 +294,7 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
               )}
             </ScrollView>
           )}
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -287,10 +303,12 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
 const makeStyles = (colors) => StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(2,6,23,0.6)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '94%', borderWidth: 1, borderColor: colors.border },
-  handleRow: { alignItems: 'flex-end', paddingHorizontal: 20, paddingTop: 4 },
-  closeBtn: { padding: 8 },
+  handleRow: { position: 'relative', minHeight: 40, justifyContent: 'center' },
+  grabZone: { paddingVertical: 12, alignItems: 'center' },
+  grabber: { width: 44, height: 5, borderRadius: 3, backgroundColor: colors.textDim, opacity: 0.6 },
+  closeBtn: { position: 'absolute', right: 14, top: 6, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center', zIndex: 5 },
   category: { color: colors.primaryLight, fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 },
-  title: { color: colors.white, fontSize: 26, fontWeight: '800', marginTop: 8, marginBottom: 20 },
+  title: { color: colors.text, fontSize: 26, fontWeight: '800', marginTop: 8, marginBottom: 20 },
   summaryCard: { backgroundColor: 'rgba(99,102,241,0.06)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.15)', borderRadius: radius.md, padding: 16, marginBottom: 20 },
   summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 },
   summaryLabel: { color: colors.primaryLight, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
@@ -306,5 +324,5 @@ const makeStyles = (colors) => StyleSheet.create({
   relatedHeader: { color: colors.textMuted, fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 },
   relatedCard: { backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.md, padding: 16, marginBottom: 12 },
   relatedCat: { color: colors.primaryLight, fontSize: 11, fontWeight: '900', textTransform: 'uppercase', marginBottom: 6 },
-  relatedTitle: { color: colors.white, fontWeight: '700', fontSize: 15, lineHeight: 20 },
+  relatedTitle: { color: colors.text, fontWeight: '700', fontSize: 15, lineHeight: 20 },
 });

@@ -155,7 +155,7 @@ const makeStyles = (colors) => StyleSheet.create({
     borderRadius: radius.lg,
     padding: 28,
   },
-  title: { fontSize: 30, fontWeight: '800', color: colors.white, textAlign: 'center' },
+  title: { fontSize: 30, fontWeight: '800', color: colors.text, textAlign: 'center' },
   subtitle: { color: colors.textMuted, textAlign: 'center', marginTop: 12, marginBottom: 24, fontSize: 14 },
   label: { color: '#cbd5e1', fontSize: 13, marginBottom: 6, marginTop: 14 },
   input: {
@@ -165,7 +165,7 @@ const makeStyles = (colors) => StyleSheet.create({
     borderRadius: radius.sm,
     paddingHorizontal: 16,
     paddingVertical: 13,
-    color: colors.white,
+    color: colors.text,
     fontSize: 16,
   },
   button: {

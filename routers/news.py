@@ -3,7 +3,7 @@ from typing_extensions import Optional
 from pydantic import BaseModel
 import schemas, models
 from dependencies import db_dependency, user_dependency
-from utils import get_embedding
+from utils import get_embedding, embeddings_enabled
 import services.ai as ai_service
 from worker import run_scraper_task, process_bulletin_tts_task
 from datetime import datetime, timezone, timedelta
@@ -16,6 +16,27 @@ router = APIRouter(
     prefix="/news",
     tags=["News"]
 )
+
+def _resolve_category_ids(db, category_id: int) -> list[int]:
+    """Hiyerarşik fallback ile filtrelenecek kategori id listesini döndürür:
+    - Ana kategori → kendisi + tüm alt kategorileri (alt dalların haberleri de gelir)
+    - Alt kategori (kendi/alt ağacında haberi varsa) → kendi alt ağacı
+    - Alt kategori (haberi yoksa) → üst kategorinin tüm alt ağacı (boş kalmasın)
+    """
+    cat = db.query(models.NewsCategory).filter(models.NewsCategory.id == category_id).first()
+    if not cat:
+        return [category_id]
+    child_ids = [c.id for c in db.query(models.NewsCategory.id)
+                 .filter(models.NewsCategory.parent_id == category_id).all()]
+    subtree = [category_id] + child_ids
+    has_news = db.query(models.News.id).filter(models.News.category_id.in_(subtree)).first() is not None
+    if has_news or not cat.parent_id:
+        return subtree
+    # Alt kategorinin haberi yok → üst kategorinin tüm alt ağacını göster
+    sibling_ids = [c.id for c in db.query(models.NewsCategory.id)
+                   .filter(models.NewsCategory.parent_id == cat.parent_id).all()]
+    return [cat.parent_id] + sibling_ids
+
 
 @router.get("/", response_model=schemas.NewsPagination)
 def get_news(
@@ -34,13 +55,25 @@ def get_news(
         interest_ids = [cat.id for cat in current_user.interests]
         query = query.filter(models.News.category_id.in_(interest_ids))
 
-    # Tek kategori filtresi
+    # Kategori filtresi (hiyerarşik fallback: ana→alt, beslemesiz alt→üst)
     if category_id:
-        query = query.filter(models.News.category_id == category_id)
+        cat_ids = _resolve_category_ids(db, category_id)
+        query = query.filter(models.News.category_id.in_(cat_ids))
 
-    if search:
+    if search and not embeddings_enabled():
+        # Embedding kapalı → doğrudan anahtar kelime (LIKE) araması
+        query = query.filter(models.News.title.contains(search))
+        total_count = query.count()
+        items = (
+            query
+            .order_by(models.News.created_at.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+            .all()
+        )
+    elif search:
         try:
-            # 1. Query vektörünü alıyoruz (Vertex AI). Embedding'i olan haberler arasında cosine similarity ile semantic search
+            # 1. Query vektörünü alıyoruz. Embedding'i olan haberler arasında cosine similarity ile semantic search
             query_vector = get_embedding(search, task_type="retrieval_query")
 
             # 2. Vektör sorgusunu hazırlıyoruz
@@ -305,10 +338,34 @@ def translate_news(news_id: int, db: db_dependency, current_user: user_dependenc
     news = db.query(models.News).filter(models.News.id == news_id).first()
     if not news:
         raise HTTPException(status_code=404, detail="Haber bulunamadı.")
-    text = news.summary or news.content[:3000]
-    from utils import translate_cached
-    translated = translate_cached(db, text, lang)
-    return {"translated": translated, "lang": lang}
+    from utils import translate_cached, detect_lang
+
+    # Haberin orijinal dili (yoksa anında tespit edip kaydet)
+    orig_lang = news.lang
+    if not orig_lang:
+        orig_lang = detect_lang(f"{news.title} {news.content or ''}")
+        news.lang = orig_lang
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    content_src = (news.content or "")[:4000]
+    if lang == orig_lang:
+        # Hedef dil zaten orijinal → çevirme, olduğu gibi dön
+        return {"summary": news.summary, "content": content_src,
+                "translated": news.summary or content_src, "lang": lang, "orig_lang": orig_lang}
+
+    translated_summary = translate_cached(db, news.summary, lang) if news.summary else None
+    translated_content = translate_cached(db, content_src, lang) if content_src else None
+    return {
+        "summary": translated_summary,
+        "content": translated_content,
+        # geriye uyumluluk: eski istemciler 'translated' bekliyor (özet)
+        "translated": translated_summary or translated_content,
+        "lang": lang,
+        "orig_lang": orig_lang,
+    }
 
 
 @router.get("/refresh/status")

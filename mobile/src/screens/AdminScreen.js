@@ -91,6 +91,26 @@ export default function AdminScreen({ navigation }) {
     finally { setProcessing(null); }
   };
 
+  const handleDeleteSource = (id) => {
+    Alert.alert('Kaynağı sil', 'Bu topluluk RSS kaynağını kalıcı olarak silmek istiyor musun?', [
+      { text: 'Vazgeç', style: 'cancel' },
+      {
+        text: 'Sil', style: 'destructive', onPress: async () => {
+          setProcessing(id);
+          try {
+            const res = await apiFetch(`/rss/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+              setApproved((a) => a.filter((s) => s.id !== id));
+              setPending((p) => p.filter((s) => s.id !== id));
+              showToast('Kaynak silindi.');
+            } else showToast('Silinemedi.', 'error');
+          } catch (_) { showToast('Bağlantı hatası.', 'error'); }
+          finally { setProcessing(null); }
+        },
+      },
+    ]);
+  };
+
   const handleAdd = async () => {
     if (!addForm.url.trim()) return;
     setAdding(true);
@@ -328,6 +348,10 @@ export default function AdminScreen({ navigation }) {
                     </View>
                     {!!src.category && <View style={styles.tag}><Text style={styles.tagText}>{src.category}</Text></View>}
                   </View>
+                  <Pressable onPress={() => handleDeleteSource(src.id)} disabled={processing === src.id}
+                    style={[styles.rejectBtn, { marginTop: 10, opacity: processing === src.id ? 0.5 : 1 }]}>
+                    <Text style={styles.rejectText}>🗑 Sil</Text>
+                  </Pressable>
                 </View>
               ))
             )}

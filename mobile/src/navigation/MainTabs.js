@@ -4,8 +4,8 @@ import { useTheme } from '../contexts/ThemeContext';
 
 import HomeScreen from '../screens/HomeScreen';
 import PodcastScreen from '../screens/PodcastScreen';
+import DashboardScreen from '../screens/DashboardScreen';
 import BookmarksScreen from '../screens/BookmarksScreen';
-import ReadLaterScreen from '../screens/ReadLaterScreen';
 import RssReaderScreen from '../screens/RssReaderScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 
@@ -14,8 +14,8 @@ const Tab = createBottomTabNavigator();
 const ICONS = {
   Home: 'newspaper-outline',
   Podcasts: 'mic-outline',
+  Dashboard: 'flame-outline',
   Bookmarks: 'bookmark-outline',
-  ReadLater: 'time-outline',
   RSS: 'list-outline',
   Settings: 'settings-outline',
 };
@@ -40,8 +40,8 @@ export default function MainTabs() {
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Akış' }} />
       <Tab.Screen name="Podcasts" component={PodcastScreen} options={{ title: 'Podcast' }} />
+      <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Gündem' }} />
       <Tab.Screen name="Bookmarks" component={BookmarksScreen} options={{ title: 'Kayıtlı' }} />
-      <Tab.Screen name="ReadLater" component={ReadLaterScreen} options={{ title: 'Sonra' }} />
       <Tab.Screen name="RSS" component={RssReaderScreen} options={{ title: 'RSS' }} />
       <Tab.Screen name="Settings" component={SettingsScreen} options={{ title: 'Ayarlar' }} />
     </Tab.Navigator>

@@ -53,6 +53,8 @@ class News(Base):
     image_url = Column(String)
     published_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Haberin orijinal dili ('tr' | 'en') — scrape sırasında tespit edilir, çeviri yönü için.
+    lang = Column(String, nullable=True)
     # Gemini text-embedding-004 → 768 boyutlu vektör
     embedding = Column(Vector(768), nullable=True)
 
@@ -70,6 +72,9 @@ class Podcast(Base):
     news_id = Column(Integer, ForeignKey("news.id"), nullable=True)
     source_url = Column(String, nullable=True)
     transcript = Column(String, nullable=True)  # Groq Whisper STT çıktısı, ilk istekte üretilir
+    # 20 podcast üst sınırı aşılınca en eskinin ses dosyası silinir ve bu True olur.
+    # Kayıt listede kalır; kullanıcı haberine gidip yeniden oluşturabilir.
+    is_archived = Column(Boolean, default=False, nullable=False)
 
     owner = relationship("User", back_populates="podcasts")
 

@@ -51,6 +51,27 @@ def get_embedding(text: str, task_type: str = "retrieval_document") -> list[floa
     return _embeddings.embed(text, task_type=task_type)
 
 
+def embeddings_enabled() -> bool:
+    """EMBEDDING_PROVIDER açık mı (semantik arama + Benzer Haberler)."""
+    return _embeddings.embeddings_enabled()
+
+
+def detect_lang(text: str) -> str:
+    """Metnin dilini kabaca tespit eder: 'tr' veya 'en' (bağımlılıksız sezgisel).
+    Türkçe'ye özgü karakterler ve sık kullanılan kelimelere bakar."""
+    if not text:
+        return "tr"
+    sample = text[:1500].lower()
+    tr_chars = sum(sample.count(c) for c in "çğıöşü")
+    tr_words = sum(f" {w} " in f" {sample} " for w in
+                   ("ve", "bir", "için", "ile", "bu", "olarak", "daha", "değil", "var", "yok", "göre"))
+    en_words = sum(f" {w} " in f" {sample} " for w in
+                   ("the", "and", "for", "with", "that", "this", "from", "will", "are", "have", "you"))
+    tr_score = tr_chars + tr_words * 2
+    en_score = en_words * 2
+    return "tr" if tr_score >= en_score else "en"
+
+
 def translate_cached(db, text: str, target_lang: str) -> str:
     """Çeviriyi DB cache'inden döner; yoksa AI ile çevirip kaydeder.
 
