@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../Utils/api';
 import { useWindowSize } from '../Utils/useWindowSize';
+import { groupCategories } from '../Utils/categoryTree';
 
 export default function Admin() {
   const navigate = useNavigate();
@@ -334,8 +335,13 @@ export default function Admin() {
                       style={{ ...inputStyle, cursor: 'pointer' }}
                     >
                       <option value="">— Kategori seç —</option>
-                      {categories.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
+                      {groupCategories(categories).map(group => (
+                        <optgroup key={group.id} label={group.name}>
+                          <option value={group.id}>{group.name} (genel)</option>
+                          {group.children.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                   )}
@@ -390,8 +396,13 @@ export default function Admin() {
                             style={{ ...inputStyle, width: 'auto', padding: '5px 10px', fontSize: '0.78rem', cursor: 'pointer' }}
                           >
                             <option value="">— Kategorisiz —</option>
-                            {categories.map(c => (
-                              <option key={c.id} value={c.id}>{c.name}</option>
+                            {groupCategories(categories).map(group => (
+                              <optgroup key={group.id} label={group.name}>
+                                <option value={group.id}>{group.name} (genel)</option>
+                                {group.children.map(c => (
+                                  <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                              </optgroup>
                             ))}
                           </select>
                           <span style={{ color: '#475569', fontSize: '0.75rem' }}>{src.created_at ? new Date(src.created_at).toLocaleString('tr-TR') : ''}</span>

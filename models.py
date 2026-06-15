@@ -74,10 +74,14 @@ class Podcast(Base):
     owner = relationship("User", back_populates="podcasts")
 
 class NewsCategory(Base):
-    """Sistemdeki mevcut kategorileri tutan basit bir tablo, id olmasa da olurdu çünkü name, unique ve primary key olabilir ama arama yaparken id(sayısal) daha hızlı olur."""
+    """Sistemdeki kategorileri tutan tablo. Hiyerarşik: parent_id NULL ise ana kategori,
+    doluysa bir ana kategorinin alt kategorisidir (kendine referanslı FK)."""
     __tablename__ = "categories"
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True, nullable=False) # "Teknoloji", "Siyaset" vb.
+    name = Column(String, unique=True, index=True, nullable=False) # "Teknoloji", "Yapay Zeka" vb.
+    parent_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=True, index=True)
+
+    parent = relationship("NewsCategory", remote_side=[id], backref="children")
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"

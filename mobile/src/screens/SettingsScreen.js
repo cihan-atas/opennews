@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast, Toast } from '../components/Toast';
 import { useTheme } from '../contexts/ThemeContext';
 import { radius } from '../theme';
+import { groupCategories } from '../utils/categoryTree';
 
 export default function SettingsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -186,16 +187,23 @@ export default function SettingsScreen({ navigation }) {
 
         <View style={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.borderSoft }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>🎯 Haber Tercihleri</Text>
-          <View style={styles.chips}>
-            {allCategories.map((cat) => {
-              const on = selected.includes(cat.id);
-              return (
-                <Pressable key={cat.id} onPress={() => toggle(cat.id)} style={[styles.chip, on && styles.chipOn, { borderColor: colors.border }]}>
-                  <Text style={{ color: on ? colors.white : colors.textMuted, fontWeight: '600', fontSize: 13 }}>{cat.name}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          {groupCategories(allCategories).map((group) => (
+            <View key={group.id} style={{ marginBottom: 14 }}>
+              <Text style={{ color: colors.primaryLight, fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                {group.name}
+              </Text>
+              <View style={styles.chips}>
+                {[group, ...group.children].map((cat) => {
+                  const on = selected.includes(cat.id);
+                  return (
+                    <Pressable key={cat.id} onPress={() => toggle(cat.id)} style={[styles.chip, on && styles.chipOn, { borderColor: colors.border }]}>
+                      <Text style={{ color: on ? colors.white : colors.textMuted, fontWeight: '600', fontSize: 13 }}>{cat.name}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ))}
           <Pressable onPress={updateInterests} disabled={!canUpdateInterests}
             style={[styles.outlineBtn, !canUpdateInterests && { borderColor: colors.border }]}>
             <Text style={{ color: canUpdateInterests ? colors.primaryLight : colors.textDim, fontWeight: '700' }}>

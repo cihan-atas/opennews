@@ -8,11 +8,12 @@ class CategoryBase(BaseModel):
     name: str
 
 class CategoryCreate(CategoryBase):
-    # Kategori oluştururken sadece isim (name) yeterli.
-    pass
+    # Kategori oluştururken isim zorunlu; parent_id verilirse alt kategori olur.
+    parent_id: Optional[int] = None
 
 class CategoryOut(CategoryBase):
     id: int
+    parent_id: Optional[int] = None
 
     class Config:
         from_attributes = True

@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { groupCategories } from '../Utils/categoryTree';
 
 function Onboarding() {
   const [categories, setCategories] = useState([]);
@@ -13,6 +14,8 @@ function Onboarding() {
       .then(res => res.json()).then(data => setCategories(data))
       .catch(() => showToast("Kategoriler yüklenemedi.", "error"));
   }, []);
+
+  const groups = useMemo(() => groupCategories(categories), [categories]);
 
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
@@ -95,10 +98,21 @@ function Onboarding() {
         {/* BACKEND GÜNCELLEMESİ: Metin 2 olarak düzeltildi */}
         <p style={{ color: '#94a3b8', marginBottom: '2.5rem', fontSize: '1.1rem' }}>En az 2 ilgi alanı seçerek dünyanı oluştur.</p>
         
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center' }}>
-          {categories.map(cat => (
-            <div key={cat.id} onClick={() => toggleCategory(cat.id)} style={styles.chip(selectedIds.includes(cat.id))}>
-              {cat.name}
+        <div style={{ textAlign: 'left', maxHeight: '52vh', overflowY: 'auto', paddingRight: '6px' }}>
+          {groups.map(group => (
+            <div key={group.id} style={{ marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                <span style={{ color: '#818cf8', fontSize: '0.85rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{group.name}</span>
+                <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.07)' }} />
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+                {/* Ana kategori de seçilebilir + alt kategoriler */}
+                {[group, ...group.children].map(cat => (
+                  <div key={cat.id} onClick={() => toggleCategory(cat.id)} style={styles.chip(selectedIds.includes(cat.id))}>
+                    {cat.name}
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>

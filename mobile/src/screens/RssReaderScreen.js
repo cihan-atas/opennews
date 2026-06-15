@@ -9,6 +9,7 @@ import { usePlayer } from '../contexts/PlayerContext';
 import { useToast, Toast } from '../components/Toast';
 import { radius } from '../theme';
 import { useTheme } from '../contexts/ThemeContext';
+import { groupCategories } from '../utils/categoryTree';
 
 const FEED_COLORS = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6'];
 const feedColor = (title) => {
@@ -602,15 +603,22 @@ export default function RssReaderScreen() {
                   onChangeText={setSubmitUrl}
                 />
                 <Text style={{ color: colors.textFaint, fontSize: 11, fontWeight: '700', marginBottom: 6 }}>Kategori seç *</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
-                  <View style={{ flexDirection: 'row', gap: 6, paddingVertical: 2 }}>
-                    {categories.map(cat => (
-                      <Pressable key={cat.id} onPress={() => setSubmitCategory(submitCategory === cat.id ? null : cat.id)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: submitCategory === cat.id ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)' }}>
-                        <Text style={{ color: submitCategory === cat.id ? colors.primaryLight : colors.textDim, fontSize: 11, fontWeight: '800' }}>{cat.name}</Text>
-                      </Pressable>
+                <View style={{ maxHeight: 220, marginBottom: 10 }}>
+                  <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
+                    {groupCategories(categories).map(group => (
+                      <View key={group.id} style={{ marginBottom: 8 }}>
+                        <Text style={{ color: colors.primaryLight, fontSize: 10, fontWeight: '800', textTransform: 'uppercase', marginBottom: 4 }}>{group.name}</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                          {[group, ...group.children].map(cat => (
+                            <Pressable key={cat.id} onPress={() => setSubmitCategory(submitCategory === cat.id ? null : cat.id)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: submitCategory === cat.id ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)' }}>
+                              <Text style={{ color: submitCategory === cat.id ? colors.primaryLight : colors.textDim, fontSize: 11, fontWeight: '800' }}>{cat.name}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      </View>
                     ))}
-                  </View>
-                </ScrollView>
+                  </ScrollView>
+                </View>
                 <Pressable onPress={handleSubmitSource} disabled={submitting || !submitUrl.trim() || !submitCategory} style={[styles.addBtn, { opacity: (!submitUrl.trim() || !submitCategory) ? 0.4 : 1, alignSelf: 'flex-start', paddingHorizontal: 16 }]}>
                   <Text style={styles.addBtnText}>{submitting ? '…' : '📨 Öneri Gönder'}</Text>
                 </Pressable>

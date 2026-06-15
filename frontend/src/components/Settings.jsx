@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../Utils/api';
 import { useWindowSize } from '../Utils/useWindowSize';
+import { groupCategories } from '../Utils/categoryTree';
 
 function Settings() {
   const navigate = useNavigate();
@@ -9,6 +10,7 @@ function Settings() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [allCategories, setAllCategories] = useState([]);
+  const groupedCategories = useMemo(() => groupCategories(allCategories), [allCategories]);
   const [selectedInterests, setSelectedInterests] = useState([]);
   const [isPasswordUpdating, setIsPasswordUpdating] = useState(false);
   const [isInterestsUpdating, setIsInterestsUpdating] = useState(false);
@@ -221,9 +223,19 @@ function Settings() {
           {/* İLGİ ALANLARI */}
           <div style={styles.section}>
             <h3 style={{ margin: '0 0 2rem 0', fontSize: '1.6rem' }}>🎯 Haber Tercihleri</h3>
-            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', marginBottom: '2rem' }}>
-              {allCategories.map(cat => (
-                <div key={cat.id} onClick={() => toggleCategory(cat.id)} style={styles.chip(selectedInterests.includes(cat.id))}>{cat.name}</div>
+            <div style={{ textAlign: 'left', marginBottom: '2rem' }}>
+              {groupedCategories.map(group => (
+                <div key={group.id} style={{ marginBottom: '1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                    <span style={{ color: '#818cf8', fontSize: '0.8rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{group.name}</span>
+                    <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.07)' }} />
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+                    {[group, ...group.children].map(cat => (
+                      <div key={cat.id} onClick={() => toggleCategory(cat.id)} style={styles.chip(selectedInterests.includes(cat.id))}>{cat.name}</div>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
             

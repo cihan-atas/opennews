@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast, Toast } from '../components/Toast';
 import { radius } from '../theme';
 import { useTheme } from '../contexts/ThemeContext';
+import { groupCategories } from '../utils/categoryTree';
 
 export default function OnboardingScreen() {
   const { refreshUser } = useAuth();
@@ -67,22 +68,29 @@ export default function OnboardingScreen() {
         {categories.length === 0 ? (
           <ActivityIndicator color={colors.primaryLight} style={{ marginTop: 40 }} />
         ) : (
-          <View style={styles.chips}>
-            {categories.map((cat) => {
-              const selected = selectedIds.includes(cat.id);
-              return (
-                <Pressable
-                  key={cat.id}
-                  onPress={() => toggle(cat.id)}
-                  style={[styles.chip, selected && styles.chipSelected]}
-                >
-                  <Text style={{ color: selected ? colors.white : colors.textMuted, fontWeight: '600' }}>
-                    {cat.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          groupCategories(categories).map((group) => (
+            <View key={group.id} style={{ marginBottom: 18 }}>
+              <Text style={{ color: colors.primaryLight, fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                {group.name}
+              </Text>
+              <View style={styles.chips}>
+                {[group, ...group.children].map((cat) => {
+                  const selected = selectedIds.includes(cat.id);
+                  return (
+                    <Pressable
+                      key={cat.id}
+                      onPress={() => toggle(cat.id)}
+                      style={[styles.chip, selected && styles.chipSelected]}
+                    >
+                      <Text style={{ color: selected ? colors.white : colors.textMuted, fontWeight: '600' }}>
+                        {cat.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ))
         )}
       </ScrollView>
 

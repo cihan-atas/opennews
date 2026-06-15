@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast, Toast } from '../components/Toast';
 import { useTheme } from '../contexts/ThemeContext';
 import { radius } from '../theme';
+import { groupCategories } from '../utils/categoryTree';
 
 export default function AdminScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -177,6 +178,25 @@ export default function AdminScreen({ navigation }) {
     </Pressable>
   );
 
+  // Ana kategori -> alt kategori gruplu, kaydırılabilir kategori seçici.
+  const CatPicker = ({ selectedId, onSelect }) => (
+    <View style={{ maxHeight: 200 }}>
+      <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
+        {groupCategories(categories).map((group) => (
+          <View key={group.id} style={{ marginBottom: 8 }}>
+            <Text style={{ color: colors.primaryLight, fontSize: 10, fontWeight: '800', textTransform: 'uppercase', marginBottom: 4 }}>{group.name}</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {[group, ...group.children].map((cat) => (
+                <CatChip key={cat.id} cat={cat} active={selectedId === cat.id}
+                  onPress={() => onSelect(selectedId === cat.id ? null : cat.id)} />
+              ))}
+            </View>
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
       <Toast toast={toast} />
@@ -243,14 +263,8 @@ export default function AdminScreen({ navigation }) {
               onChangeText={(v) => setAddForm((f) => ({ ...f, title: v }))}
             />
             <Text style={styles.fieldLabel}>Kategori</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={{ flexDirection: 'row', gap: 6, paddingVertical: 2 }}>
-                {categories.map((cat) => (
-                  <CatChip key={cat.id} cat={cat} active={addForm.category_id === cat.id}
-                    onPress={() => setAddForm((f) => ({ ...f, category_id: f.category_id === cat.id ? null : cat.id }))} />
-                ))}
-              </View>
-            </ScrollView>
+            <CatPicker selectedId={addForm.category_id}
+              onSelect={(id) => setAddForm((f) => ({ ...f, category_id: id }))} />
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'center' }}>
               <TextInput
                 style={[styles.input, { flex: 1, marginTop: 0 }]}
@@ -281,17 +295,9 @@ export default function AdminScreen({ navigation }) {
                   {!!src.title && <Text style={styles.itemTitle}>{src.title}</Text>}
                   <Text style={styles.itemUrl} numberOfLines={1}>{src.url}</Text>
                   <Text style={styles.fieldLabel}>Kategori</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={{ flexDirection: 'row', gap: 6, paddingVertical: 2 }}>
-                      {categories.map((cat) => {
-                        const active = (rssCat[src.id] !== undefined ? rssCat[src.id] : src.category_id) === cat.id;
-                        return (
-                          <CatChip key={cat.id} cat={cat} active={active}
-                            onPress={() => setRssCat((p) => ({ ...p, [src.id]: active ? null : cat.id }))} />
-                        );
-                      })}
-                    </View>
-                  </ScrollView>
+                  <CatPicker
+                    selectedId={rssCat[src.id] !== undefined ? rssCat[src.id] : src.category_id}
+                    onSelect={(id) => setRssCat((p) => ({ ...p, [src.id]: id }))} />
                   <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
                     <Pressable onPress={() => handleApprove(src.id)} disabled={processing === src.id}
                       style={[styles.approveBtn, { opacity: processing === src.id ? 0.5 : 1 }]}>

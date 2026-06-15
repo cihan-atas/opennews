@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { fetchWithAuth } from '../Utils/api';
 import { useWindowSize } from '../Utils/useWindowSize';
+import { groupCategories } from '../Utils/categoryTree';
 import AudioPlayer from './AudioPlayer';
 import { usePlayer } from '../contexts/PlayerContext';
 
@@ -661,8 +662,13 @@ function RssReader() {
                   onChange={e => setSubmitCategory(e.target.value)}
                 >
                   <option value="">— Kategori seç —</option>
-                  {categories.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
+                  {groupCategories(categories).map(group => (
+                    <optgroup key={group.id} label={group.name}>
+                      <option value={group.id}>{group.name} (genel)</option>
+                      {group.children.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
                 <button type="submit" disabled={submitting || !submitUrl.trim() || !submitCategory} style={{ ...s.btn('primary'), opacity: (!submitUrl.trim() || !submitCategory) ? 0.4 : 1 }}>
