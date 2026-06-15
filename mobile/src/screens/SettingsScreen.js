@@ -9,7 +9,7 @@ import { useToast, Toast } from '../components/Toast';
 import { useTheme } from '../contexts/ThemeContext';
 import { radius } from '../theme';
 
-export default function SettingsScreen() {
+export default function SettingsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { user, logout, refreshUser } = useAuth();
   const { toast, showToast } = useToast();
@@ -25,9 +25,6 @@ export default function SettingsScreen() {
   const [deleting, setDeleting] = useState(false);
   const [stats, setStats] = useState(null);
   const [adminStats, setAdminStats] = useState(null);
-  const [pendingRss, setPendingRss] = useState([]);
-  const [rssProcessing, setRssProcessing] = useState(null);
-  const [rssCat, setRssCat] = useState({}); // { [id]: category_id } admin override
 
   useEffect(() => {
     if (user?.interests) setSelected(user.interests.map((i) => i.id));
@@ -41,40 +38,15 @@ export default function SettingsScreen() {
         if (statsRes.ok) setStats(await statsRes.json());
       } catch (_) {}
 
-      // Admin verileri (yalnızca yetkili kullanıcı için)
+      // Admin istatistiği (panel butonundaki bekleyen sayısı için)
       if (user?.is_admin) {
         try {
-          const [aStatsRes, pendingRes] = await Promise.all([
-            apiFetch('/admin/stats'),
-            apiFetch('/rss/pending'),
-          ]);
+          const aStatsRes = await apiFetch('/admin/stats');
           if (aStatsRes.ok) setAdminStats(await aStatsRes.json());
-          if (pendingRes.ok) setPendingRss(await pendingRes.json());
         } catch (_) {}
       }
     })();
   }, [user]);
-
-  const handleRssDecision = async (id, approve) => {
-    setRssProcessing(id);
-    try {
-      const opts = { method: 'POST' };
-      if (approve) {
-        const chosen = rssCat[id];
-        const src = pendingRss.find((s) => s.id === id);
-        const catId = chosen !== undefined ? chosen : (src ? src.category_id : null);
-        opts.body = JSON.stringify({ category_id: catId ?? null });
-      }
-      const res = await apiFetch(`/rss/${id}/${approve ? 'approve' : 'reject'}`, opts);
-      if (res.ok) {
-        setPendingRss((p) => p.filter((s) => s.id !== id));
-        showToast(approve ? 'Kaynak onaylandı.' : 'Kaynak reddedildi.');
-      } else {
-        showToast('İşlem başarısız.', 'error');
-      }
-    } catch (_) { showToast('Bağlantı hatası.', 'error'); }
-    finally { setRssProcessing(null); }
-  };
 
   const toggle = (id) => setSelected((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
@@ -157,67 +129,18 @@ export default function SettingsScreen() {
 
         {/* Yönetim — yalnızca admin */}
         {user?.is_admin && (
-          <View style={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.primaryLight }]}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>🛠️ Yönetim</Text>
-
-            {adminStats && (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 6 }}>
-                {[
-                  { label: 'Kullanıcı', value: adminStats.users, icon: '👥' },
-                  { label: 'Haber', value: adminStats.news, icon: '📰' },
-                  { label: 'Podcast', value: adminStats.podcasts, icon: '🎙️' },
-                  { label: 'Bekleyen RSS', value: adminStats.pending_rss, icon: '⏳' },
-                ].map((item) => (
-                  <View key={item.label} style={styles.statCard}>
-                    <Text style={{ fontSize: 22, marginBottom: 4 }}>{item.icon}</Text>
-                    <Text style={styles.statValue}>{item.value}</Text>
-                    <Text style={[styles.statLabel, { color: colors.textDim }]}>{item.label}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700', marginTop: 10, marginBottom: 8 }}>
-              Bekleyen RSS Kaynakları ({pendingRss.length})
-            </Text>
-            {pendingRss.length === 0 ? (
-              <Text style={{ color: colors.textDim, fontSize: 13 }}>Onay bekleyen kaynak yok.</Text>
-            ) : (
-              pendingRss.map((src) => (
-                <View key={src.id} style={{ borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingVertical: 10 }}>
-                  {!!src.title && <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>{src.title}</Text>}
-                  <Text style={{ color: colors.textDim, fontSize: 12 }} numberOfLines={1}>{src.url}</Text>
-                  <Text style={{ color: colors.textFaint, fontSize: 11, fontWeight: '700', marginTop: 8, marginBottom: 4 }}>Kategori</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={{ flexDirection: 'row', gap: 6, paddingVertical: 2 }}>
-                      {allCategories.map((cat) => {
-                        const active = (rssCat[src.id] !== undefined ? rssCat[src.id] : src.category_id) === cat.id;
-                        return (
-                          <Pressable key={cat.id} onPress={() => setRssCat((p) => ({ ...p, [src.id]: active ? null : cat.id }))} style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: active ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)' }}>
-                            <Text style={{ color: active ? colors.primaryLight : colors.textDim, fontSize: 11, fontWeight: '800' }}>{cat.name}</Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </ScrollView>
-                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
-                    <Pressable
-                      onPress={() => handleRssDecision(src.id, true)}
-                      disabled={rssProcessing === src.id}
-                      style={{ flex: 1, paddingVertical: 9, borderRadius: radius.sm, backgroundColor: 'rgba(16,185,129,0.15)', alignItems: 'center' }}>
-                      <Text style={{ color: colors.success || '#10b981', fontWeight: '700' }}>✓ Onayla</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => handleRssDecision(src.id, false)}
-                      disabled={rssProcessing === src.id}
-                      style={{ flex: 1, paddingVertical: 9, borderRadius: radius.sm, backgroundColor: 'rgba(239,68,68,0.12)', alignItems: 'center' }}>
-                      <Text style={{ color: colors.danger || '#ef4444', fontWeight: '700' }}>✕ Reddet</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              ))
-            )}
-          </View>
+          <Pressable
+            onPress={() => navigation.navigate('Admin')}
+            style={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.primaryLight, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 4 }]}>🛠️ Admin Paneli</Text>
+              <Text style={{ color: colors.textDim, fontSize: 13 }}>
+                İstatistikler, kaynak ekleme, bekleyen RSS onayı ve kullanıcı yönetimi
+                {adminStats?.pending_rss ? ` · ${adminStats.pending_rss} bekleyen` : ''}
+              </Text>
+            </View>
+            <Text style={{ color: colors.primaryLight, fontSize: 22, fontWeight: '800', marginLeft: 12 }}>›</Text>
+          </Pressable>
         )}
 
         <View style={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.borderSoft }]}>
