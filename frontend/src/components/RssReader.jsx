@@ -30,6 +30,7 @@ function RssReader() {
   // Article modal
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [podcastStatus, setPodcastStatus] = useState(null);
+  const [showLengthPicker, setShowLengthPicker] = useState(false);
   const [audioUrl, setAudioUrl] = useState(null);
   const [podcastPollTitle, setPodcastPollTitle] = useState(null);
   const [podcastCache, setPodcastCache] = useState({});
@@ -387,14 +388,15 @@ function RssReader() {
     finally { setIsTranslating(false); }
   };
 
-  const handleCreatePodcast = async () => {
+  const handleCreatePodcast = async (length = 'medium') => {
     if (!selectedArticle) return;
+    setShowLengthPicker(false);
     setPodcastStatus('loading');
     const content = stripHtmlFull(selectedArticle.summary) || selectedArticle.title;
     try {
       const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss-reader/podcast`, {
         method: 'POST',
-        body: JSON.stringify({ title: selectedArticle.title, content, source_url: selectedArticle.link || null }),
+        body: JSON.stringify({ title: selectedArticle.title, content, source_url: selectedArticle.link || null, length }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -692,7 +694,7 @@ function RssReader() {
                 {savedArticles.map(a => (
                   <div
                     key={a.id}
-                    onClick={() => { setSelectedArticle(a); setPodcastStatus(podcastCache[a.title] ? 'ready' : null); setActiveTranslation(null); setTranslationCache({}); }}
+                    onClick={() => { setSelectedArticle(a); setPodcastStatus(podcastCache[a.title] ? 'ready' : null); setShowLengthPicker(false); setActiveTranslation(null); setTranslationCache({}); }}
                     style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '12px 14px', cursor: 'pointer', transition: '0.2s' }}
                     onMouseOver={e => e.currentTarget.style.borderColor = 'rgba(99,102,241,0.25)'}
                     onMouseOut={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
@@ -964,14 +966,35 @@ function RssReader() {
                 {savedIds[selectedArticle.link] ? '📌 Kaydedildi' : '📌 Kaydet'}
               </button>
 
-              {podcastStatus !== 'ready' && (
-                <button
-                  onClick={handleCreatePodcast}
-                  disabled={podcastStatus === 'loading' || podcastStatus === 'processing'}
-                  style={{ flex: 1, minWidth: '130px', padding: '13px 18px', borderRadius: '14px', border: 'none', background: (podcastStatus === 'loading' || podcastStatus === 'processing') ? 'rgba(99,102,241,0.25)' : 'linear-gradient(135deg,#6366f1,#818cf8)', color: 'white', fontWeight: '700', fontSize: '0.88rem', cursor: (podcastStatus === 'loading' || podcastStatus === 'processing') ? 'not-allowed' : 'pointer', transition: '0.2s', boxShadow: (!podcastStatus) ? '0 8px 20px -4px rgba(99,102,241,0.4)' : 'none' }}
+              {podcastStatus !== 'ready' && (podcastStatus === 'loading' || podcastStatus === 'processing') && (
+                <button disabled
+                  style={{ flex: 1, minWidth: '130px', padding: '13px 18px', borderRadius: '14px', border: 'none', background: 'rgba(99,102,241,0.25)', color: 'white', fontWeight: '700', fontSize: '0.88rem', cursor: 'not-allowed' }}
                 >
-                  {podcastStatus === 'loading' ? '⏳ Hazırlanıyor...' : podcastStatus === 'processing' ? '🎙️ Üretiliyor...' : '🎙️ Podcast Oluştur'}
+                  {podcastStatus === 'loading' ? '⏳ Hazırlanıyor...' : '🎙️ Üretiliyor...'}
                 </button>
+              )}
+              {podcastStatus !== 'ready' && podcastStatus !== 'loading' && podcastStatus !== 'processing' && !showLengthPicker && (
+                <button
+                  onClick={() => setShowLengthPicker(true)}
+                  style={{ flex: 1, minWidth: '130px', padding: '13px 18px', borderRadius: '14px', border: 'none', background: 'linear-gradient(135deg,#6366f1,#818cf8)', color: 'white', fontWeight: '700', fontSize: '0.88rem', cursor: 'pointer', boxShadow: '0 8px 20px -4px rgba(99,102,241,0.4)' }}
+                >
+                  🎙️ Podcast Oluştur
+                </button>
+              )}
+              {podcastStatus !== 'ready' && podcastStatus !== 'loading' && podcastStatus !== 'processing' && showLengthPicker && (
+                <div style={{ flex: 1, display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {[
+                    { key: 'short', label: '30sn-1dk' },
+                    { key: 'medium', label: '1-2dk' },
+                    { key: 'long', label: '2-4dk' },
+                  ].map(opt => (
+                    <button key={opt.key} onClick={() => handleCreatePodcast(opt.key)}
+                      style={{ flex: 1, minWidth: '70px', padding: '11px 8px', borderRadius: '12px', border: '1px solid rgba(99,102,241,0.4)', background: 'rgba(99,102,241,0.12)', color: '#c7d2fe', fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer' }}>
+                      🎙️ {opt.label}
+                    </button>
+                  ))}
+                  <button onClick={() => setShowLengthPicker(false)} style={{ padding: '11px 12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#64748b', cursor: 'pointer' }}>✕</button>
+                </div>
               )}
             </div>
           </div>

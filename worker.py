@@ -23,8 +23,21 @@ celery_app.conf.update(
     enable_utc=True,
 )
 
+# Podcast uzunluk seçenekleri: kullanıcının seçtiği süreye göre senaryo cümle aralığı.
+# (Polly Burcu ~140 kelime/dk, Türkçe cümle ~13-15 kelime varsayımıyla.)
+PODCAST_LENGTHS = {
+    "short":  (6, 9, "30 saniye–1 dakika"),
+    "medium": (13, 18, "1–2 dakika"),
+    "long":   (26, 36, "2–4 dakika"),
+}
+
+
+def _length_range(length: str):
+    lo, hi, _label = PODCAST_LENGTHS.get(length or "medium", PODCAST_LENGTHS["medium"])
+    return lo, hi
+
 @celery_app.task(name="process_news_and_tts", queue="ai_queue")
-def process_news_and_tts_task(news_id: int, user_id: int):
+def process_news_and_tts_task(news_id: int, user_id: int, length: str = "medium"):
     db = SessionLocal()
     tmp_path = f"/tmp/news_{news_id}.mp3"
     try:
@@ -50,10 +63,13 @@ def process_news_and_tts_task(news_id: int, user_id: int):
             print(f"[Worker] Kısa özet kaydedildi ({len(news.summary.split())} kelime).")
 
         # 2b. Podcast TTS senaryosu (uzun, ses için) — ayrı üretilir, DB'ye kaydedilmez
+        lo, hi = _length_range(length)
+        print(f"[Worker] Podcast uzunluğu: {length} → {lo}-{hi} cümle hedefi")
         tts_prompt = (
             "Aşağıdaki haberi Türkçe olarak akıcı bir haber anlatımı şeklinde hazırla.\n\n"
             "KURALLAR:\n"
-            "1. Haberin tüm önemli detaylarını, bağlamını ve sonuçlarını kapsayan 10-12 cümlelik akıcı bir anlatı oluştur.\n"
+            f"1. Haberin tüm önemli detaylarını, bağlamını ve sonuçlarını kapsayan {lo}-{hi} cümlelik akıcı bir anlatı oluştur. "
+            "Hedeflenen cümle sayısına olabildiğince yaklaş; içerik kısaysa arka plan ve bağlam ekleyerek zenginleştir.\n"
             "2. Sesli okunacağından doğal bir konuşma diliyle yaz, madde işareti veya başlık kullanma.\n"
             "3. Asla 'Bu podcast'te', 'Bu bölümde', 'Bugün size', 'Hoş geldiniz' gibi sunucu ifadeleri veya program girişleri kullanma. Doğrudan haberi anlatmaya başla.\n"
             "4. İngilizce marka, şirket ve teknik terimlere Türkçe ek getirirken kelimenin okunuşunu baz al (örn: Google'de değil Google'da; OpenAI'ye değil OpenAI'ya; API'ye; GitHub'a).\n"
@@ -171,17 +187,19 @@ def auto_generate_summaries_and_embeddings_task():
         db.close()
 
 @celery_app.task(name="process_rss_article_tts", queue="ai_queue")
-def process_rss_article_tts_task(title: str, content: str, user_id: int, source_url: str = None):
-    """RSS makale metnini Gemini ile Türkçeye özetler, TTS ile sese çevirir ve kaydeder."""
+def process_rss_article_tts_task(title: str, content: str, user_id: int, source_url: str = None, length: str = "medium"):
+    """RSS makale metnini Türkçeye özetler, TTS ile sese çevirir ve kaydeder."""
     import hashlib
     tmp_key = hashlib.md5(f"{title}{user_id}".encode()).hexdigest()[:12]
     tmp_path = f"/tmp/rss_{tmp_key}.mp3"
     db = SessionLocal()
     try:
+        lo, hi = _length_range(length)
         prompt = (
             "Aşağıdaki haberi Türkçe olarak akıcı bir haber anlatımı şeklinde hazırla.\n\n"
             "KURALLAR:\n"
-            "1. Haberin tüm önemli detaylarını, bağlamını ve sonuçlarını kapsayan 10-12 cümlelik akıcı bir anlatı oluştur.\n"
+            f"1. Haberin tüm önemli detaylarını, bağlamını ve sonuçlarını kapsayan {lo}-{hi} cümlelik akıcı bir anlatı oluştur. "
+            "Hedeflenen cümle sayısına olabildiğince yaklaş; içerik kısaysa arka plan ve bağlam ekleyerek zenginleştir.\n"
             "2. Sesli okunacağından doğal bir konuşma diliyle yaz, madde işareti veya başlık kullanma.\n"
             "3. Asla 'Bu podcast'te', 'Bu bölümde', 'Bugün size', 'Hoş geldiniz' gibi sunucu ifadeleri veya program girişleri kullanma. Doğrudan haberi anlatmaya başla.\n"
             "4. İngilizce marka, şirket ve teknik terimlere Türkçe ek getirirken kelimenin okunuşunu baz al (örn: Google'de değil Google'da; OpenAI'ye değil OpenAI'ya; API'ye; GitHub'a).\n"

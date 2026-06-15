@@ -56,11 +56,14 @@ def stream_podcast_audio(podcast_id: int, db: db_dependency, current_user: user_
 
 
 @router.post("/generate/{news_id}", status_code=status.HTTP_202_ACCEPTED)
-def generate_podcast(news_id: int, db: db_dependency, current_user: user_dependency):
+def generate_podcast(news_id: int, db: db_dependency, current_user: user_dependency, length: str = "medium"):
     """
     Kullanıcı isteğiyle belirli bir haber için podcast oluşturur.
     Zaten varsa mevcut podcast'i döner, yoksa Celery task başlatır.
+    `length`: short (30sn-1dk) | medium (1-2dk) | long (2-4dk) — senaryo uzunluğunu belirler.
     """
+    if length not in ("short", "medium", "long"):
+        length = "medium"
     existing = db.query(models.Podcast).filter(
         models.Podcast.news_id == news_id,
         models.Podcast.user_id == current_user.id,
@@ -72,7 +75,7 @@ def generate_podcast(news_id: int, db: db_dependency, current_user: user_depende
     if not news:
         raise HTTPException(status_code=404, detail="Haber bulunamadı.")
 
-    process_news_and_tts_task.delay(news_id, current_user.id)
+    process_news_and_tts_task.delay(news_id, current_user.id, length)
     return {"status": "processing"}
 
 

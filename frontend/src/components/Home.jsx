@@ -15,6 +15,7 @@ function Home() {
   const [selectedNews, setSelectedNews] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [podcastStatus, setPodcastStatus] = useState('idle');
+  const [showLengthPicker, setShowLengthPicker] = useState(false);
   const [podcastAutoPlay, setPodcastAutoPlay] = useState(false);
   const [audioUrl, setAudioUrl] = useState(null);
   const { setTrack } = usePlayer();
@@ -410,6 +411,7 @@ function Home() {
 
   const handleNewsClick = async (newsId) => {
     setPodcastStatus('idle');
+    setShowLengthPicker(false);
     setAudioUrl(null);
     setPodcastAutoPlay(false);
     stopPolling();
@@ -495,12 +497,13 @@ function Home() {
     finally { setIsTranslating(false); }
   };
 
-  const handleGeneratePodcast = async () => {
+  const handleGeneratePodcast = async (length = 'medium') => {
     if (!selectedNews || podcastStatus === 'processing') return;
+    setShowLengthPicker(false);
     setPodcastStatus('processing');
     showToast("Podcast üretimi başladı...", "success");
     try {
-      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/podcast/generate/${selectedNews.id}`, { method: 'POST' });
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/podcast/generate/${selectedNews.id}?length=${length}`, { method: 'POST' });
       if (res.ok) {
         startPolling(selectedNews.id, selectedNews.title, selectedNews.category?.name);
       } else {
@@ -704,10 +707,29 @@ function Home() {
             <div style={{ lineHeight: '1.9', color: '#cbd5e1', fontSize: '1.1rem', whiteSpace: 'pre-wrap' }}>{selectedNews.content}</div>
 
             <div style={{ marginTop: '3rem', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-              {podcastStatus === 'idle' && (
-                <button onClick={handleGeneratePodcast} style={{ padding: '14px 28px', borderRadius: '16px', border: 'none', background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', color: 'white', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 20px -5px rgba(99, 102, 241, 0.4)' }}>
+              {podcastStatus === 'idle' && !showLengthPicker && (
+                <button onClick={() => setShowLengthPicker(true)} style={{ padding: '14px 28px', borderRadius: '16px', border: 'none', background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', color: 'white', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 20px -5px rgba(99, 102, 241, 0.4)' }}>
                   🎙 Podcast Oluştur
                 </button>
+              )}
+              {podcastStatus === 'idle' && showLengthPicker && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <span style={{ color: '#94a3b8', fontSize: '0.85rem', fontWeight: '700' }}>🎙 Podcast süresi seç:</span>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    {[
+                      { key: 'short', label: '30 sn – 1 dk', sub: 'Kısa' },
+                      { key: 'medium', label: '1 – 2 dk', sub: 'Orta' },
+                      { key: 'long', label: '2 – 4 dk', sub: 'Uzun' },
+                    ].map(opt => (
+                      <button key={opt.key} onClick={() => handleGeneratePodcast(opt.key)}
+                        style={{ padding: '12px 20px', borderRadius: '14px', border: '1px solid rgba(99,102,241,0.4)', background: 'rgba(99,102,241,0.12)', color: '#c7d2fe', fontWeight: '700', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                        <span style={{ fontSize: '0.95rem' }}>{opt.label}</span>
+                        <span style={{ fontSize: '0.72rem', color: '#818cf8' }}>{opt.sub}</span>
+                      </button>
+                    ))}
+                    <button onClick={() => setShowLengthPicker(false)} style={{ padding: '12px 16px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#64748b', cursor: 'pointer' }}>✕</button>
+                  </div>
+                </div>
               )}
               {podcastStatus === 'processing' && <p style={{ color: '#818cf8', fontWeight: 'bold', margin: 0 }}>🎧 Hazırlanıyor...</p>}
               {podcastStatus === 'ready' && audioUrl && (

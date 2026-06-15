@@ -42,6 +42,7 @@ export default function RssReaderScreen() {
 
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [podcastStatus, setPodcastStatus] = useState(null); // null | loading | processing | ready
+  const [showLengthPicker, setShowLengthPicker] = useState(false);
   const [podcastCache, setPodcastCache] = useState({});
   const [activeTranslation, setActiveTranslation] = useState(null);
   const [translationCache, setTranslationCache] = useState({});
@@ -271,6 +272,7 @@ export default function RssReaderScreen() {
 
   const openArticle = (article) => {
     setSelectedArticle(article);
+    setShowLengthPicker(false);
     setActiveTranslation(null); setTranslationCache({}); setTranslating(false);
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     const cached = podcastCache[article.title];
@@ -294,14 +296,15 @@ export default function RssReaderScreen() {
     finally { setTranslating(false); }
   };
 
-  const createPodcast = async () => {
+  const createPodcast = async (length = 'medium') => {
     if (!selectedArticle) return;
+    setShowLengthPicker(false);
     setPodcastStatus('loading');
     const content = stripHtml(selectedArticle.summary) || selectedArticle.title;
     try {
       const res = await apiFetch('/rss-reader/podcast', {
         method: 'POST',
-        body: JSON.stringify({ title: selectedArticle.title, content, source_url: selectedArticle.link || null }),
+        body: JSON.stringify({ title: selectedArticle.title, content, source_url: selectedArticle.link || null, length }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -705,13 +708,34 @@ export default function RssReaderScreen() {
                     {savedIds[selectedArticle?.link] ? '📌 Kaydedildi' : '📌 Kaydet'}
                   </Text>
                 </Pressable>
-                {podcastStatus !== 'ready' && (
-                  <Pressable onPress={createPodcast} disabled={podcastStatus === 'loading' || podcastStatus === 'processing'}
-                    style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                {podcastStatus !== 'ready' && (podcastStatus === 'loading' || podcastStatus === 'processing') && (
+                  <Pressable disabled style={[styles.modalBtn, { backgroundColor: 'rgba(99,102,241,0.4)' }]}>
                     <Text style={{ color: colors.white, fontWeight: '700' }}>
-                      {podcastStatus === 'loading' ? '⏳ Hazırlanıyor…' : podcastStatus === 'processing' ? '🎙️ Üretiliyor…' : '🎙️ Podcast Oluştur'}
+                      {podcastStatus === 'loading' ? '⏳ Hazırlanıyor…' : '🎙️ Üretiliyor…'}
                     </Text>
                   </Pressable>
+                )}
+                {podcastStatus !== 'ready' && podcastStatus !== 'loading' && podcastStatus !== 'processing' && !showLengthPicker && (
+                  <Pressable onPress={() => setShowLengthPicker(true)} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                    <Text style={{ color: colors.white, fontWeight: '700' }}>🎙️ Podcast Oluştur</Text>
+                  </Pressable>
+                )}
+                {podcastStatus !== 'ready' && podcastStatus !== 'loading' && podcastStatus !== 'processing' && showLengthPicker && (
+                  <>
+                    {[
+                      { key: 'short', label: '🎙️ 30sn-1dk' },
+                      { key: 'medium', label: '🎙️ 1-2dk' },
+                      { key: 'long', label: '🎙️ 2-4dk' },
+                    ].map((opt) => (
+                      <Pressable key={opt.key} onPress={() => createPodcast(opt.key)}
+                        style={[styles.modalBtn, { borderWidth: 1, borderColor: 'rgba(99,102,241,0.4)', backgroundColor: 'rgba(99,102,241,0.12)' }]}>
+                        <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>{opt.label}</Text>
+                      </Pressable>
+                    ))}
+                    <Pressable onPress={() => setShowLengthPicker(false)} style={[styles.modalBtn, styles.outlineBtn]}>
+                      <Text style={{ color: colors.textDim, fontWeight: '700' }}>✕</Text>
+                    </Pressable>
+                  </>
                 )}
               </View>
               <View style={{ height: 40 }} />

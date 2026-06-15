@@ -26,6 +26,7 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
   const [related, setRelated] = useState([]);
   const [feedback, setFeedback] = useState(null);
   const [podcastStatus, setPodcastStatus] = useState('idle'); // idle | processing | ready
+  const [showLengthPicker, setShowLengthPicker] = useState(false);
   const [lang, setLang] = useState('tr');
   const [translated, setTranslated] = useState(null);
   const [translating, setTranslating] = useState(false);
@@ -41,7 +42,7 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
   const loadNews = useCallback(async (id) => {
     setLoading(true);
     setNews(null); setRelated([]); setFeedback(null); setReadLater(false);
-    setTranslated(null); setLang('tr'); setPodcastStatus('idle');
+    setTranslated(null); setLang('tr'); setPodcastStatus('idle'); setShowLengthPicker(false);
     try {
       const [detailRes, podRes, bmRes, relRes, fbRes, rlRes] = await Promise.all([
         apiFetch(`/news/${id}`),
@@ -117,12 +118,13 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
     finally { setTranslating(false); }
   };
 
-  const generatePodcast = async () => {
+  const generatePodcast = async (length = 'medium') => {
     if (!news || podcastStatus === 'processing') return;
+    setShowLengthPicker(false);
     setPodcastStatus('processing');
     showToast('Podcast üretimi başladı…');
     try {
-      const res = await apiFetch(`/podcast/generate/${activeId}`, { method: 'POST' });
+      const res = await apiFetch(`/podcast/generate/${activeId}?length=${length}`, { method: 'POST' });
       if (!res.ok) { setPodcastStatus('idle'); return; }
       // Hazır olana kadar polling (web ile aynı: 3 sn).
       stopPolling();
@@ -208,10 +210,30 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
               <Text style={styles.content}>{news.content}</Text>
 
               <View style={styles.actions}>
-                {podcastStatus === 'idle' && (
-                  <Pressable onPress={generatePodcast} style={styles.primaryBtn}>
+                {podcastStatus === 'idle' && !showLengthPicker && (
+                  <Pressable onPress={() => setShowLengthPicker(true)} style={styles.primaryBtn}>
                     <Text style={styles.primaryBtnText}>🎙 Podcast Oluştur</Text>
                   </Pressable>
+                )}
+                {podcastStatus === 'idle' && showLengthPicker && (
+                  <View style={{ width: '100%', gap: 8 }}>
+                    <Text style={{ color: colors.textDim, fontSize: 13, fontWeight: '700' }}>🎙 Podcast süresi seç:</Text>
+                    <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                      {[
+                        { key: 'short', label: '30sn-1dk' },
+                        { key: 'medium', label: '1-2dk' },
+                        { key: 'long', label: '2-4dk' },
+                      ].map((opt) => (
+                        <Pressable key={opt.key} onPress={() => generatePodcast(opt.key)}
+                          style={{ flex: 1, minWidth: 80, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(99,102,241,0.4)', backgroundColor: 'rgba(99,102,241,0.12)', alignItems: 'center' }}>
+                          <Text style={{ color: colors.primaryLight, fontWeight: '700', fontSize: 13 }}>{opt.label}</Text>
+                        </Pressable>
+                      ))}
+                      <Pressable onPress={() => setShowLengthPicker(false)} style={{ paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}>
+                        <Text style={{ color: colors.textDim, fontWeight: '700' }}>✕</Text>
+                      </Pressable>
+                    </View>
+                  </View>
                 )}
                 {podcastStatus === 'processing' && <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>🎧 Hazırlanıyor…</Text>}
                 {podcastStatus === 'ready' && (
