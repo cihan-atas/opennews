@@ -292,7 +292,7 @@ function RssReader() {
   const fetchCommunity = async () => {
     setCommunityLoading(true);
     try {
-      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss/approved`);
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss/community`);
       if (res.ok) setCommunityFeeds(await res.json());
     } catch (_) { showToast('Topluluk kaynakları yüklenemedi.', 'error'); }
     finally { setCommunityLoading(false); }

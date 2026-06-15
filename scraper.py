@@ -25,26 +25,12 @@ from sqlalchemy.exc import IntegrityError
 
 SEEN_URLS_FILE = Path(__file__).parent / ".scraper_seen_urls.json"
 
-# Her feed için kategori adı DB'deki CATEGORIES_LIST sırasıyla eşleşmeli:
-# Teknoloji, Ekonomi, Spor, Siyaset, Sağlık, Kültür-Sanat,
-# Bilim, Otomobil, Oyun, Magazin, Eğitim, Dünya, Türkiye, Gastronomi, Diğer
-RSS_SOURCES = [
-    {"url": "https://www.ntv.com.tr/teknoloji.rss",    "category_name": "Teknoloji"},
-    {"url": "https://www.ntv.com.tr/ekonomi.rss",      "category_name": "Ekonomi"},
-    {"url": "https://www.hurriyet.com.tr/rss/spor",    "category_name": "Spor"},
-    {"url": "https://www.aa.com.tr/tr/rss/default?cat=politika", "category_name": "Siyaset"},
-    {"url": "https://www.ntv.com.tr/saglik.rss",       "category_name": "Sağlık"},
-    {"url": "https://www.cumhuriyet.com.tr/rss/kultur-sanat", "category_name": "Kültür-Sanat"},
-    {"url": "https://www.trthaber.com/bilim_teknoloji_articles.rss", "category_name": "Bilim"},
-    {"url": "https://www.ntv.com.tr/otomobil.rss",    "category_name": "Otomobil"},
-    {"url": "https://shiftdelete.net/oyun/feed",       "category_name": "Oyun"},
-    {"url": "https://www.hurriyet.com.tr/rss/magazin", "category_name": "Magazin"},
-    {"url": "https://www.ntv.com.tr/egitim.rss",       "category_name": "Eğitim"},
-    {"url": "https://www.ntv.com.tr/dunya.rss",        "category_name": "Dünya"},
-    {"url": "https://www.ntv.com.tr/turkiye.rss",      "category_name": "Türkiye"},
-    {"url": "https://www.lezzet.com.tr/rss",           "category_name": "Gastronomi"},
-    {"url": "https://www.ntv.com.tr/yasam.rss",        "category_name": "Diğer"},
-]
+# Feed -> kategori eşlemeleri merkezi feeds_catalog.FEED_CATALOG'dan üretilir
+# (kategori adları DB'deki kategorilerle birebir eşleşmeli — ana veya alt kategori).
+# Katalog scripts/validate_feeds.py ile doğrulanmıştır.
+from feeds_catalog import scraper_sources
+
+RSS_SOURCES = scraper_sources()
 
 # İçerik çıkarmak için denenen CSS seçiciler (öncelik sırasıyla)
 CONTENT_SELECTORS = [

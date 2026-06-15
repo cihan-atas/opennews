@@ -220,7 +220,7 @@ export default function RssReaderScreen() {
   const fetchCommunity = async () => {
     setCommunityLoading(true);
     try {
-      const res = await apiFetch('/rss/approved');
+      const res = await apiFetch('/rss/community');
       if (res.ok) setCommunityFeeds(await res.json());
       if (categories.length === 0) {
         const catRes = await apiFetch('/categories/');

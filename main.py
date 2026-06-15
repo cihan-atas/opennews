@@ -7,6 +7,7 @@ from routers import auth, news, podcast, users, categories, bookmarks, feed, rss
 from database import engine, SessionLocal
 import models
 from seed_data import seed_categories
+from seed_community_rss import seed_community_rss
 import logging
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings
@@ -86,7 +87,8 @@ def startup_event():
     db = SessionLocal()
     try:
         seed_categories(db) # Kategorileri kontrol et ve eksikse ekle
-        
+        seed_community_rss(db) # Onaylı topluluk RSS kaynaklarını katalogdan seed et
+
         # 🎯 UTKU (Otonom İlklendirme): Uygulama ilk kez ayağa kalkarken otomatik haber çekimini başlatıyoruz.
         # .delay() kullandığımız için API'nin açılış hızı sıfır kesintiye uğrar, iş asenkron kuyruğa devredilir.
         logger.info("[System Startup] Uygulama ilk açılış tetikleyicisi: Scraper görevi asenkron olarak kuyruğa fırlatılıyor...")

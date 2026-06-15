@@ -143,9 +143,7 @@ def reject_source(source_id: int, db: db_dependency, current_user: user_dependen
     return {"message": "Kaynak reddedildi."}
 
 
-@router.get("/approved")
-def list_approved(db: db_dependency, current_user: user_dependency):
-    _require_admin(current_user)
+def _approved_list(db):
     items = (
         db.query(models.CommunityRssSource)
         .filter(models.CommunityRssSource.status == "approved")
@@ -162,3 +160,16 @@ def list_approved(db: db_dependency, current_user: user_dependency):
         }
         for s in items
     ]
+
+
+@router.get("/approved")
+def list_approved(db: db_dependency, current_user: user_dependency):
+    """Admin paneli için onaylı kaynaklar (admin yetkisi gerekir)."""
+    _require_admin(current_user)
+    return _approved_list(db)
+
+
+@router.get("/community")
+def list_community(db: db_dependency, current_user: user_dependency):
+    """RSS okuyucu 'Topluluk' sekmesi için onaylı kaynaklar (her oturumlu kullanıcı)."""
+    return _approved_list(db)
