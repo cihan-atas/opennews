@@ -32,6 +32,7 @@ function RssReader() {
   const [podcastStatus, setPodcastStatus] = useState(null);
   const [showLengthPicker, setShowLengthPicker] = useState(false);
   const [audioUrl, setAudioUrl] = useState(null);
+  const [podcastId, setPodcastId] = useState(null);
   const [podcastPollTitle, setPodcastPollTitle] = useState(null);
   const [podcastCache, setPodcastCache] = useState({});
   const { setTrack } = usePlayer();
@@ -95,6 +96,7 @@ function RssReader() {
           const data = await res.json();
           clearInterval(interval);
           setAudioUrl(data.audio_url);
+          setPodcastId(data.podcast_id);
           setPodcastStatus('ready');
           setPodcastCache(prev => ({ ...prev, [podcastPollTitle]: data.audio_url }));
           setTrack(data.audio_url, podcastPollTitle, selectedArticle?.feed_title, true, data.podcast_id);
@@ -941,9 +943,14 @@ function RssReader() {
               </p>
             </div>
 
-            {/* Podcast ready info */}
+            {/* Podcast ready: oynatıcıyı yeniden aç */}
             {podcastStatus === 'ready' && audioUrl && (
-              <p style={{ color: '#10b981', fontWeight: 'bold', margin: '0 0 1.5rem', fontSize: '0.9rem' }}>🎧 Podcast hazır — açılan oynatıcıdan dinleyebilirsin.</p>
+              <button
+                onClick={() => setTrack(audioUrl, podcastPollTitle || selectedArticle?.title, selectedArticle?.feed_title, true, podcastId)}
+                style={{ margin: '0 0 1.5rem', padding: '12px 24px', borderRadius: '14px', border: 'none', background: 'linear-gradient(135deg, #10b981 0%, #34d399 100%)', color: 'white', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 20px -5px rgba(16, 185, 129, 0.4)' }}
+              >
+                ▶ Podcast'ı Oynat
+              </button>
             )}
 
             {/* Actions */}

@@ -18,6 +18,7 @@ function Home() {
   const [showLengthPicker, setShowLengthPicker] = useState(false);
   const [podcastAutoPlay, setPodcastAutoPlay] = useState(false);
   const [audioUrl, setAudioUrl] = useState(null);
+  const [podcastId, setPodcastId] = useState(null);
   const { setTrack } = usePlayer();
   const pollRef = useRef(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -399,6 +400,7 @@ function Home() {
         if (res.ok) {
           const data = await res.json();
           setAudioUrl(data.audio_url);
+          setPodcastId(data.id);
           setPodcastAutoPlay(true);
           setPodcastStatus('ready');
           setTrack(data.audio_url, newsTitle, newsCategory, true, data.id);
@@ -413,6 +415,7 @@ function Home() {
     setPodcastStatus('idle');
     setShowLengthPicker(false);
     setAudioUrl(null);
+    setPodcastId(null);
     setPodcastAutoPlay(false);
     stopPolling();
     try {
@@ -436,6 +439,7 @@ function Home() {
       if (podRes.ok) {
         const podData = await podRes.json();
         setAudioUrl(podData.audio_url);
+        setPodcastId(podData.id);
         setPodcastStatus('ready');
         setTrack(podData.audio_url, newsDetail?.title, newsDetail?.category?.name, true, podData.id);
       }
@@ -733,7 +737,12 @@ function Home() {
               )}
               {podcastStatus === 'processing' && <p style={{ color: '#818cf8', fontWeight: 'bold', margin: 0 }}>🎧 Hazırlanıyor...</p>}
               {podcastStatus === 'ready' && audioUrl && (
-                <p style={{ color: '#10b981', fontWeight: 'bold', margin: 0 }}>🎧 Podcast hazır — açılan oynatıcıdan dinleyebilirsin.</p>
+                <button
+                  onClick={() => setTrack(audioUrl, selectedNews?.title, selectedNews?.category?.name, true, podcastId)}
+                  style={{ padding: '14px 28px', borderRadius: '16px', border: 'none', background: 'linear-gradient(135deg, #10b981 0%, #34d399 100%)', color: 'white', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 20px -5px rgba(16, 185, 129, 0.4)' }}
+                >
+                  ▶ Podcast'ı Oynat
+                </button>
               )}
 
               <button

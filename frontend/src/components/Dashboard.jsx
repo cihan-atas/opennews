@@ -8,6 +8,10 @@ export default function Dashboard() {
   const { isMobile } = useWindowSize();
   const [stats, setStats] = useState(null);
   const [trending, setTrending] = useState([]);
+  const [rssTrending, setRssTrending] = useState([]);
+  const [rssFilter, setRssFilter] = useState(null);
+  const [savedLinks, setSavedLinks] = useState(new Set());
+  const [refreshingRss, setRefreshingRss] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedNews, setSelectedNews] = useState(null);
   const [newsLoading, setNewsLoading] = useState(false);
@@ -25,12 +29,14 @@ export default function Dashboard() {
     const load = async () => {
       setLoading(true);
       try {
-        const [statsRes, trendRes] = await Promise.all([
+        const [statsRes, trendRes, rssRes] = await Promise.all([
           fetchWithAuth(`${import.meta.env.VITE_API_URL}/users/stats`),
           fetchWithAuth(`${import.meta.env.VITE_API_URL}/news/trending`),
+          fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss-reader/trending`),
         ]);
         if (statsRes.ok) setStats(await statsRes.json());
         if (trendRes.ok) setTrending(await trendRes.json());
+        if (rssRes.ok) setRssTrending(await rssRes.json());
       } catch (_) {
         showToast('Veriler yüklenirken hata oluştu.');
       } finally {
@@ -39,6 +45,42 @@ export default function Dashboard() {
     };
     load();
   }, []);
+
+  const refreshRss = async () => {
+    setRefreshingRss(true);
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss-reader/trending`);
+      if (res.ok) { setRssTrending(await res.json()); setRssFilter(null); }
+    } catch (_) {
+      showToast('RSS gündemi yenilenemedi.');
+    } finally {
+      setRefreshingRss(false);
+    }
+  };
+
+  const toggleSaveArticle = async (art) => {
+    if (savedLinks.has(art.link)) { showToast('Bu makale zaten kayıtlı.', 'success'); return; }
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/rss-reader/saved`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: art.title, link: art.link, summary: art.summary || null,
+          feed_title: art.feed_title || null, feed_url: art.feed_url || null, published: art.published || null,
+        }),
+      });
+      if (res.ok || res.status === 409) {
+        setSavedLinks(prev => new Set(prev).add(art.link));
+        showToast('Makale kaydedildi. 📌', 'success');
+      } else {
+        showToast('Kaydedilemedi.');
+      }
+    } catch (_) {
+      showToast('Kaydedilemedi.');
+    }
+  };
+
+  const rssFeedTitles = [...new Set(rssTrending.map(a => a.feed_title).filter(Boolean))];
+  const filteredRss = rssFilter ? rssTrending.filter(a => a.feed_title === rssFilter) : rssTrending;
 
   const openNews = async (id) => {
     setNewsLoading(true);
@@ -69,11 +111,13 @@ export default function Dashboard() {
       {/* Toast */}
       <div style={{
         position: 'fixed', top: toast.show ? '30px' : '-80px', left: '50%', transform: 'translateX(-50%)',
-        backgroundColor: 'rgba(239,68,68,0.2)', color: '#ef4444', border: '1px solid #ef4444',
+        backgroundColor: toast.type === 'success' ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)',
+        color: toast.type === 'success' ? '#10b981' : '#ef4444',
+        border: `1px solid ${toast.type === 'success' ? '#10b981' : '#ef4444'}`,
         backdropFilter: 'blur(12px)', padding: '12px 24px', borderRadius: '16px', fontWeight: '600',
         transition: 'all 0.4s', opacity: toast.show ? 1 : 0, zIndex: 9999,
       }}>
-        ⚠️ {toast.message}
+        {toast.type === 'success' ? '✅' : '⚠️'} {toast.message}
       </div>
 
       {/* Header */}
@@ -159,6 +203,94 @@ export default function Dashboard() {
                             </span>
                           )}
                           <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{new Date(news.created_at).toLocaleDateString('tr-TR')}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* RSS Gündemi — kullanıcının takip ettiği beslemelerden */}
+            {rssTrending.length > 0 && (
+              <div style={{ marginTop: '3rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '0.4rem' }}>
+                  <h2 style={{ color: 'white', fontSize: '1.5rem', fontWeight: '800', margin: 0 }}>
+                    📡 RSS Gündemi
+                  </h2>
+                  <button
+                    onClick={refreshRss}
+                    disabled={refreshingRss}
+                    title="Gündemi yenile"
+                    style={{ marginLeft: 'auto', background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '12px', padding: '6px 14px', fontWeight: '700', fontSize: '0.82rem', cursor: refreshingRss ? 'not-allowed' : 'pointer' }}
+                  >
+                    {refreshingRss ? '⏳ Yenileniyor' : '↻ Yenile'}
+                  </button>
+                </div>
+                <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '0 0 1rem' }}>
+                  Takip ettiğin RSS beslemelerinden en güncel başlıklar.
+                </p>
+
+                {/* Besleme filtresi */}
+                {rssFeedTitles.length > 1 && (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+                    <button onClick={() => setRssFilter(null)}
+                      style={{ padding: '6px 14px', borderRadius: '999px', border: '1px solid rgba(16,185,129,0.25)', background: !rssFilter ? 'rgba(16,185,129,0.18)' : 'transparent', color: !rssFilter ? '#34d399' : '#64748b', fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer' }}>
+                      Tümü
+                    </button>
+                    {rssFeedTitles.map(t => (
+                      <button key={t} onClick={() => setRssFilter(rssFilter === t ? null : t)}
+                        style={{ padding: '6px 14px', borderRadius: '999px', border: '1px solid rgba(16,185,129,0.25)', background: rssFilter === t ? 'rgba(16,185,129,0.18)' : 'transparent', color: rssFilter === t ? '#34d399' : '#64748b', fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer' }}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {filteredRss.map((art, idx) => (
+                    <div
+                      key={art.link || idx}
+                      style={{
+                        display: 'flex', alignItems: 'flex-start', gap: '16px',
+                        background: 'rgba(15,23,42,0.5)', border: '1px solid rgba(255,255,255,0.05)',
+                        borderRadius: '16px', padding: '1.25rem 1.5rem', transition: 'all 0.2s',
+                      }}
+                      onMouseOver={e => e.currentTarget.style.borderColor = 'rgba(16,185,129,0.3)'}
+                      onMouseOut={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'}
+                    >
+                      <span style={{ fontSize: '1.3rem', minWidth: '28px' }}>📰</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <a href={art.link} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
+                          <p style={{ margin: 0, color: 'white', fontWeight: '700', fontSize: '0.95rem', lineHeight: '1.4', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                            {art.title}
+                          </p>
+                        </a>
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          {art.feed_title && (
+                            <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#34d399', background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              {art.feed_title}
+                            </span>
+                          )}
+                          {art.published && (
+                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{new Date(art.published).toLocaleDateString('tr-TR')}</span>
+                          )}
+                        </div>
+                        {/* Aksiyonlar */}
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+                          <button
+                            onClick={() => toggleSaveArticle(art)}
+                            style={{ padding: '7px 14px', borderRadius: '10px', border: `1px solid ${savedLinks.has(art.link) ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}`, background: savedLinks.has(art.link) ? 'rgba(16,185,129,0.12)' : 'transparent', color: savedLinks.has(art.link) ? '#34d399' : '#94a3b8', fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer' }}
+                          >
+                            {savedLinks.has(art.link) ? '📌 Kaydedildi' : '📌 Kaydet'}
+                          </button>
+                          <button
+                            onClick={() => navigate('/rss-reader')}
+                            title="RSS Okuyucu'da podcast oluştur"
+                            style={{ padding: '7px 14px', borderRadius: '10px', border: '1px solid rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.1)', color: '#818cf8', fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer' }}
+                          >
+                            🎙 Podcast
+                          </button>
                         </div>
                       </div>
                     </div>

@@ -195,6 +195,42 @@ def get_articles(list_id: int, db: db_dependency, current_user: user_dependency)
     return articles
 
 
+@router.get("/trending")
+def get_rss_trending(db: db_dependency, current_user: user_dependency, limit: int = 12):
+    """Kullanıcının tüm RSS listelerindeki beslemelerden en güncel makaleleri
+    toplayıp tarihe göre sıralı 'RSS Gündemi' döndürür."""
+    lists = (
+        db.query(models.UserRssList)
+        .filter(models.UserRssList.user_id == current_user.id)
+        .all()
+    )
+    # Tüm listelerdeki benzersiz beslemeleri topla (aynı url birden çok listede olabilir)
+    feeds = {}
+    for lst in lists:
+        for f in lst.feeds:
+            feeds.setdefault(f.url, f.title)
+
+    if not feeds:
+        return []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        futures = [ex.submit(_fetch_feed, url, title) for url, title in feeds.items()]
+        results = [f.result() for f in concurrent.futures.as_completed(futures)]
+
+    articles = [item for sublist in results for item in sublist]
+    # Link bazında tekilleştir
+    seen = set()
+    unique = []
+    for a in articles:
+        key = a.get("link") or a.get("title")
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(a)
+
+    unique.sort(key=lambda a: a["published"] or "", reverse=True)
+    return unique[:limit]
+
+
 # ── RSS Podcast ────────────────────────────────────────────────────────────────
 
 @router.post("/translate")

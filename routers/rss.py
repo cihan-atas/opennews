@@ -4,6 +4,7 @@ from typing import Optional
 import models
 from dependencies import db_dependency, user_dependency
 from sqlalchemy.exc import IntegrityError
+import feedparser
 
 router = APIRouter(prefix="/rss", tags=["Community RSS"])
 
@@ -11,6 +12,21 @@ router = APIRouter(prefix="/rss", tags=["Community RSS"])
 def _require_admin(current_user):
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Bu işlem için admin yetkisi gerekiyor.")
+
+
+def _validate_feed_url(url: str) -> Optional[str]:
+    """RSS URL'sinin gerçekten ayrıştırılabilir bir besleme olduğunu doğrular.
+    Geçerliyse beslemenin başlığını döndürür (otomatik isim için), değilse 400 atar."""
+    try:
+        parsed = feedparser.parse(url)
+    except Exception:
+        raise HTTPException(status_code=400, detail="RSS kaynağı okunamadı. URL'yi kontrol edin.")
+    # Ayrıştırma hatası (bozuk XML / besleme değil) ve hiç girdi yoksa geçersiz say.
+    if getattr(parsed, "bozo", 0) and not parsed.entries:
+        raise HTTPException(status_code=400, detail="Geçerli bir RSS/Atom beslemesi değil.")
+    if not parsed.entries and not parsed.feed.get("title"):
+        raise HTTPException(status_code=400, detail="Bu adreste yayın/besleme bulunamadı.")
+    return parsed.feed.get("title") or None
 
 
 class RssSubmit(BaseModel):
@@ -41,9 +57,10 @@ def _validate_category(db, category_id):
 @router.post("/submit", status_code=status.HTTP_201_CREATED)
 def submit_rss_source(body: RssSubmit, db: db_dependency, current_user: user_dependency):
     _validate_category(db, body.category_id)
+    detected_title = _validate_feed_url(str(body.url))
     source = models.CommunityRssSource(
         url=str(body.url),
-        title=body.title,
+        title=body.title or detected_title,
         category_id=body.category_id,
         submitted_by=current_user.id,
         status="pending",
@@ -62,9 +79,10 @@ def admin_add_source(body: RssAdminAdd, db: db_dependency, current_user: user_de
     """Admin doğrudan onaylı kaynak ekler."""
     _require_admin(current_user)
     _validate_category(db, body.category_id)
+    detected_title = _validate_feed_url(str(body.url))
     source = models.CommunityRssSource(
         url=str(body.url),
-        title=body.title,
+        title=body.title or detected_title,
         category_id=body.category_id,
         submitted_by=current_user.id,
         status="approved",

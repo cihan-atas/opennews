@@ -65,6 +65,11 @@ export default function RssReaderScreen() {
   const [loadingSaved, setLoadingSaved] = useState(false);
   const [savedIds, setSavedIds] = useState({}); // { link: savedId }
 
+  const [showTrending, setShowTrending] = useState(false);
+  const [rssTrending, setRssTrending] = useState([]);
+  const [loadingTrending, setLoadingTrending] = useState(false);
+  const [trendingFilter, setTrendingFilter] = useState(null);
+
   const pollRef = useRef(null);
   const pollTitleRef = useRef(null);
 
@@ -124,6 +129,15 @@ export default function RssReaderScreen() {
         }
       } catch (_) { showToast('Kaydedilemedi.', 'error'); }
     }
+  };
+
+  const fetchRssTrending = async () => {
+    setLoadingTrending(true);
+    try {
+      const res = await apiFetch('/rss-reader/trending');
+      if (res.ok) setRssTrending(await res.json());
+    } catch (_) { showToast('RSS gündemi yüklenemedi.', 'error'); }
+    finally { setLoadingTrending(false); }
   };
 
   const fetchLists = async () => {
@@ -352,6 +366,15 @@ export default function RssReaderScreen() {
     return r;
   }, [articles, activeFeedFilter, searchTerm]);
 
+  const trendingFeedTitles = useMemo(() => {
+    const seen = new Set();
+    return rssTrending.map((a) => a.feed_title).filter((t) => t && !seen.has(t) && seen.add(t));
+  }, [rssTrending]);
+
+  const filteredTrending = useMemo(() => (
+    trendingFilter ? rssTrending.filter((a) => a.feed_title === trendingFilter) : rssTrending
+  ), [rssTrending, trendingFilter]);
+
   const renderArticle = ({ item: a }) => (
     <Pressable onPress={() => openArticle(a)} style={styles.article}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
@@ -412,13 +435,16 @@ export default function RssReaderScreen() {
       ) : (
         <>
           <View style={styles.toolbar}>
-            <Pressable onPress={() => { setShowSaved(false); loadArticles(selectedList.id); }} disabled={loadingArticles} style={styles.toolBtn}>
+            <Pressable onPress={() => { setShowSaved(false); setShowTrending(false); loadArticles(selectedList.id); }} disabled={loadingArticles} style={styles.toolBtn}>
               <Text style={{ color: colors.textMuted, fontWeight: '700' }}>{loadingArticles ? '⏳' : '↻'} Yenile</Text>
             </Pressable>
             <Pressable onPress={() => setShowFeedManager(true)} style={[styles.toolBtn, { backgroundColor: colors.primary, borderColor: colors.primary }]}>
               <Text style={{ color: colors.white, fontWeight: '700' }}>+ RSS Yönet</Text>
             </Pressable>
-            <Pressable onPress={() => { setShowSaved(!showSaved); }} style={[styles.toolBtn, showSaved && { backgroundColor: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)' }]}>
+            <Pressable onPress={() => { const next = !showTrending; setShowTrending(next); if (next) { setShowSaved(false); setTrendingFilter(null); fetchRssTrending(); } }} style={[styles.toolBtn, showTrending && { backgroundColor: 'rgba(16,185,129,0.15)', borderColor: 'rgba(16,185,129,0.4)' }]}>
+              <Text style={{ color: showTrending ? '#34d399' : colors.textMuted, fontWeight: '700' }}>📡 Gündem</Text>
+            </Pressable>
+            <Pressable onPress={() => { setShowSaved(!showSaved); setShowTrending(false); }} style={[styles.toolBtn, showSaved && { backgroundColor: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)' }]}>
               <Text style={{ color: showSaved ? colors.primaryLight : colors.textMuted, fontWeight: '700' }}>📌 {savedArticles.length > 0 ? savedArticles.length : ''} Kayıtlar</Text>
             </Pressable>
             <Pressable onPress={() => { setShowCommunity(true); if (communityFeeds.length === 0) fetchCommunity(); }} style={[styles.toolBtn, { borderColor: 'rgba(99,102,241,0.3)' }]}>
@@ -436,7 +462,7 @@ export default function RssReaderScreen() {
             />
           )}
 
-          {feedTitles.length > 1 && (
+          {!showTrending && !showSaved && feedTitles.length > 1 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 44, marginHorizontal: 16 }} contentContainerStyle={{ gap: 6, paddingVertical: 6 }}>
               <Pressable onPress={() => setActiveFeedFilter(null)} style={[styles.filterChip, !activeFeedFilter && { backgroundColor: colors.primarySoft }]}>
                 <Text style={{ color: !activeFeedFilter ? colors.primaryLight : colors.textFaint, fontWeight: '700', fontSize: 12 }}>Tümü</Text>
@@ -450,7 +476,65 @@ export default function RssReaderScreen() {
             </ScrollView>
           )}
 
-          {showSaved ? (
+          {showTrending ? (
+            loadingTrending ? (
+              <ActivityIndicator color="#34d399" style={{ marginTop: 40 }} />
+            ) : (
+              <FlatList
+                data={filteredTrending}
+                keyExtractor={(a, i) => `${a.link || a.title}-${i}`}
+                renderItem={({ item: a }) => {
+                  const isSaved = !!savedIds[a.link];
+                  return (
+                    <Pressable onPress={() => openArticle(a)} style={styles.article}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <Text style={[styles.feedBadge, { color: feedColor(a.feed_title), backgroundColor: `${feedColor(a.feed_title)}22` }]}>{a.feed_title || 'RSS'}</Text>
+                        {!!a.published && <Text style={{ color: colors.textFaint, fontSize: 11, marginLeft: 'auto' }}>{new Date(a.published).toLocaleDateString('tr-TR')}</Text>}
+                      </View>
+                      <Text style={styles.articleTitle}>{a.title}</Text>
+                      {!!a.summary && <Text style={styles.articleSummary} numberOfLines={2}>{stripHtml(a.summary)}</Text>}
+                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                        <Pressable onPress={() => toggleSave(a)} style={[styles.trendAction, isSaved && { borderColor: 'rgba(16,185,129,0.4)', backgroundColor: 'rgba(16,185,129,0.12)' }]}>
+                          <Text style={{ color: isSaved ? '#34d399' : colors.textMuted, fontWeight: '700', fontSize: 12 }}>{isSaved ? '📌 Kaydedildi' : '📌 Kaydet'}</Text>
+                        </Pressable>
+                        <Pressable onPress={() => openArticle(a)} style={[styles.trendAction, { borderColor: 'rgba(99,102,241,0.3)', backgroundColor: 'rgba(99,102,241,0.1)' }]}>
+                          <Text style={{ color: colors.primaryLight, fontWeight: '700', fontSize: 12 }}>🎙 Podcast</Text>
+                        </Pressable>
+                      </View>
+                    </Pressable>
+                  );
+                }}
+                contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 120 }}
+                ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+                ListHeaderComponent={
+                  <View>
+                    <Text style={{ color: colors.textFaint, fontSize: 13, marginBottom: 12 }}>
+                      📡 Takip ettiğin tüm RSS beslemelerinden en güncel başlıklar.
+                    </Text>
+                    {trendingFeedTitles.length > 1 && (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }} contentContainerStyle={{ gap: 6 }}>
+                        <Pressable onPress={() => setTrendingFilter(null)} style={[styles.filterChip, !trendingFilter && { backgroundColor: 'rgba(16,185,129,0.18)' }]}>
+                          <Text style={{ color: !trendingFilter ? '#34d399' : colors.textFaint, fontWeight: '700', fontSize: 12 }}>Tümü</Text>
+                        </Pressable>
+                        {trendingFeedTitles.map((t) => (
+                          <Pressable key={t} onPress={() => setTrendingFilter(trendingFilter === t ? null : t)}
+                            style={[styles.filterChip, trendingFilter === t && { backgroundColor: `${feedColor(t)}22` }]}>
+                            <Text style={{ color: trendingFilter === t ? feedColor(t) : colors.textFaint, fontWeight: '700', fontSize: 12 }}>{t}</Text>
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </View>
+                }
+                ListEmptyComponent={
+                  <View style={styles.empty}>
+                    <Text style={{ fontSize: 40 }}>📡</Text>
+                    <Text style={{ color: colors.textDim, marginTop: 12, textAlign: 'center' }}>Gündem için RSS beslemesi ekle.</Text>
+                  </View>
+                }
+              />
+            )
+          ) : showSaved ? (
             loadingSaved ? (
               <ActivityIndicator color={colors.primaryLight} style={{ marginTop: 40 }} />
             ) : (
@@ -762,6 +846,7 @@ const makeStyles = (colors) => StyleSheet.create({
   toolBtn: { paddingVertical: 9, paddingHorizontal: 16, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.05)' },
   search: { marginHorizontal: 16, backgroundColor: 'rgba(2,6,23,0.5)', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 10, color: colors.white, marginBottom: 4 },
   filterChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.05)' },
+  trendAction: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.04)' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   article: { backgroundColor: 'rgba(15,23,42,0.5)', borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.md, padding: 16 },
   feedBadge: { fontSize: 11, fontWeight: '800', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, textTransform: 'uppercase', overflow: 'hidden' },
