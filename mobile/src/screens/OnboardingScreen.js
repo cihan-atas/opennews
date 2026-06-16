@@ -121,7 +121,7 @@ const makeStyles = (colors) => StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: 'rgba(15,23,42,0.4)',
+    backgroundColor: colors.surfaceAlpha,
   },
   chipSelected: { borderColor: colors.primaryLight, backgroundColor: colors.primarySoft },
   footer: { paddingHorizontal: 24, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.borderSoft },

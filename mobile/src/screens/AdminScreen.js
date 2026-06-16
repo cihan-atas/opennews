@@ -401,7 +401,7 @@ const makeStyles = (c) => ({
   tagText: { color: c.primaryLight, fontSize: 11, fontWeight: '800' },
   input: { backgroundColor: c.bg, borderColor: c.border, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: c.text, fontSize: 14 },
   fieldLabel: { color: c.textFaint, fontSize: 11, fontWeight: '700', marginTop: 10, marginBottom: 6, textTransform: 'uppercase' },
-  chip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.05)' },
+  chip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: colors.chip },
   chipActive: { backgroundColor: 'rgba(99,102,241,0.25)' },
   chipText: { fontSize: 11, fontWeight: '800' },
   primaryBtn: { backgroundColor: c.primary, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 14 },

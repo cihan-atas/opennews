@@ -7,7 +7,13 @@ import { useNavigationContainerRef } from '@react-navigation/native';
 
 import { AuthProvider } from './src/contexts/AuthContext';
 import { PlayerProvider } from './src/contexts/PlayerContext';
-import { ThemeProvider } from './src/contexts/ThemeContext';
+import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
+
+// Status bar ikonları uygulama temasına göre (açık temada koyu ikon → şarj/saat görünür)
+function ThemedStatusBar() {
+  const { theme } = useTheme();
+  return <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />;
+}
 import RootNavigator from './src/navigation/RootNavigator';
 import MiniPlayer from './src/components/MiniPlayer';
 import OfflineBanner from './src/components/OfflineBanner';
@@ -43,7 +49,7 @@ export default function App() {
         <ThemeProvider>
           <AuthProvider>
             <PlayerProvider>
-              <StatusBar style="auto" />
+              <ThemedStatusBar />
               <RootNavigator navigationRef={navigationRef} />
               <MiniPlayer />
               <OfflineBanner />

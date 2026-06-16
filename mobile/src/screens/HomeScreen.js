@@ -403,12 +403,12 @@ const makeStyles = (colors) => StyleSheet.create({
   historyTitle: { color: colors.textFaint, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   historyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10, paddingVertical: 10 },
   search: {
-    flex: 1, backgroundColor: 'rgba(15,23,42,0.4)', borderWidth: 1, borderColor: colors.border,
+    flex: 1, backgroundColor: colors.surfaceAlpha, borderWidth: 1, borderColor: colors.border,
     borderRadius: radius.md, paddingHorizontal: 18, paddingVertical: 12, color: colors.text,
   },
   refreshBtn: {
     width: 48, height: 48, borderRadius: 24, borderWidth: 1, borderColor: colors.border,
-    backgroundColor: 'rgba(30,41,59,0.5)', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.surfaceAlpha, alignItems: 'center', justifyContent: 'center',
   },
   bulletinBtn: {
     marginBottom: 18, paddingVertical: 13, borderRadius: radius.md, borderWidth: 1,
@@ -428,10 +428,10 @@ const makeStyles = (colors) => StyleSheet.create({
   cardSummary: { color: colors.textMuted, lineHeight: 22 },
   empty: { color: colors.textMuted, textAlign: 'center', marginTop: 40 },
   pager: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, paddingVertical: 24 },
-  pageBtn: { backgroundColor: 'rgba(30,41,59,0.5)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: radius.sm },
+  pageBtn: { backgroundColor: colors.surfaceAlpha, paddingVertical: 8, paddingHorizontal: 16, borderRadius: radius.sm },
   pageBtnText: { color: colors.white, fontWeight: '700' },
   suggestion: {
-    position: 'absolute', bottom: 24, right: 16, left: 16, backgroundColor: 'rgba(15,23,42,0.97)',
+    position: 'absolute', bottom: 24, right: 16, left: 16, backgroundColor: colors.card,
     borderWidth: 1, borderColor: colors.success, borderRadius: radius.lg, padding: 20,
   },
   suggestionTitle: { color: colors.success, fontSize: 17, fontWeight: '700' },

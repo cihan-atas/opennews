@@ -34,15 +34,17 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
 
   const pollRef = useRef(null);
 
-  // Aşağı çekince kapatma (tutamaçtan sürükle)
+  // Aşağı çekince kapatma — kartın HER yerinden (içerik en üstteyken aşağı sürükle)
   const translateY = useRef(new Animated.Value(0)).current;
+  const scrollOffset = useRef(0);
   useEffect(() => { if (visible) translateY.setValue(0); }, [visible, translateY]);
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => g.dy > 6 && Math.abs(g.dy) > Math.abs(g.dx),
-      onPanResponderMove: (_, g) => { if (g.dy > 0) translateY.setValue(g.dy); },
+      // Sadece içerik en üstteyken VE aşağı doğru çekilirken devral (yoksa normal scroll)
+      onMoveShouldSetPanResponder: (_, g) => scrollOffset.current <= 0 && g.dy > 8 && g.dy > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => { translateY.setValue(Math.max(0, g.dy)); },
       onPanResponderRelease: (_, g) => {
-        if (g.dy > 130 || g.vy > 1.2) {
+        if (g.dy > 120 || g.vy > 1.1) {
           Animated.timing(translateY, { toValue: 800, duration: 200, useNativeDriver: true }).start(() => onClose());
         } else {
           Animated.spring(translateY, { toValue: 0, useNativeDriver: true }).start();
@@ -181,10 +183,10 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
       <View style={styles.overlay}>
-        <Animated.View style={[styles.sheet, { paddingTop: insets.top + 8, paddingBottom: insets.bottom, transform: [{ translateY }] }]}>
+        <Animated.View style={[styles.sheet, { paddingTop: insets.top + 8, paddingBottom: insets.bottom, transform: [{ translateY }] }]} {...panResponder.panHandlers}>
           <Toast toast={toast} />
           <View style={styles.handleRow}>
-            <View style={styles.grabZone} {...panResponder.panHandlers}>
+            <View style={styles.grabZone}>
               <View style={styles.grabber} />
             </View>
             <Pressable onPress={onClose} hitSlop={16} style={styles.closeBtn}>
@@ -195,7 +197,11 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
           {loading || !news ? (
             <ActivityIndicator color={colors.primaryLight} style={{ marginTop: 60 }} />
           ) : (
-            <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 140 }}>
+            <ScrollView
+              contentContainerStyle={{ padding: 20, paddingBottom: 140 }}
+              onScroll={(e) => { scrollOffset.current = e.nativeEvent.contentOffset.y; }}
+              scrollEventThrottle={16}
+            >
               {!!news.category?.name && <Text style={styles.category}>{news.category.name}</Text>}
               <Text style={styles.title}>{news.title}</Text>
 
@@ -239,7 +245,7 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
                 )}
                 {podcastStatus === 'idle' && showLengthPicker && (
                   <View style={{ width: '100%', gap: 8 }}>
-                    <Text style={{ color: colors.textDim, fontSize: 13, fontWeight: '700' }}>🎙 Podcast süresi seç:</Text>
+                    <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>🎙 Podcast süresi seç:</Text>
                     <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
                       {[
                         { key: 'short', label: '30sn-1dk' },
@@ -247,8 +253,8 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
                         { key: 'long', label: '2-4dk' },
                       ].map((opt) => (
                         <Pressable key={opt.key} onPress={() => generatePodcast(opt.key)}
-                          style={{ flex: 1, minWidth: 80, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(99,102,241,0.4)', backgroundColor: 'rgba(99,102,241,0.12)', alignItems: 'center' }}>
-                          <Text style={{ color: colors.primaryLight, fontWeight: '700', fontSize: 13 }}>{opt.label}</Text>
+                          style={{ flex: 1, minWidth: 80, paddingVertical: 13, borderRadius: 12, borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.primarySoft, alignItems: 'center' }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{opt.label}</Text>
                         </Pressable>
                       ))}
                       <Pressable onPress={() => setShowLengthPicker(false)} style={{ paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}>
@@ -301,18 +307,18 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
 }
 
 const makeStyles = (colors) => StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(2,6,23,0.6)', justifyContent: 'flex-end' },
+  overlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '94%', borderWidth: 1, borderColor: colors.border },
   handleRow: { position: 'relative', minHeight: 40, justifyContent: 'center' },
   grabZone: { paddingVertical: 12, alignItems: 'center' },
   grabber: { width: 44, height: 5, borderRadius: 3, backgroundColor: colors.textDim, opacity: 0.6 },
-  closeBtn: { position: 'absolute', right: 14, top: 6, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center', zIndex: 5 },
+  closeBtn: { position: 'absolute', right: 14, top: 6, width: 36, height: 36, borderRadius: 18, backgroundColor: colors.chip, alignItems: 'center', justifyContent: 'center', zIndex: 5 },
   category: { color: colors.primaryLight, fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 },
   title: { color: colors.text, fontSize: 26, fontWeight: '800', marginTop: 8, marginBottom: 20 },
   summaryCard: { backgroundColor: 'rgba(99,102,241,0.06)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.15)', borderRadius: radius.md, padding: 16, marginBottom: 20 },
   summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 },
   summaryLabel: { color: colors.primaryLight, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
-  langToggle: { flexDirection: 'row', backgroundColor: 'rgba(2,6,23,0.5)', borderRadius: 10, padding: 3, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)' },
+  langToggle: { flexDirection: 'row', backgroundColor: colors.inputBg, borderRadius: 10, padding: 3, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)' },
   langBtn: { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 7 },
   fbBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingVertical: 6, paddingHorizontal: 10 },
   summaryText: { color: '#cbd5e1', lineHeight: 24, fontSize: 15 },
@@ -322,7 +328,7 @@ const makeStyles = (colors) => StyleSheet.create({
   primaryBtnText: { color: colors.white, fontWeight: '700' },
   outlineBtn: { borderWidth: 1, borderColor: colors.border, paddingVertical: 13, paddingHorizontal: 18, borderRadius: radius.md },
   relatedHeader: { color: colors.textMuted, fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 },
-  relatedCard: { backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.md, padding: 16, marginBottom: 12 },
+  relatedCard: { backgroundColor: colors.chip, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.md, padding: 16, marginBottom: 12 },
   relatedCat: { color: colors.primaryLight, fontSize: 11, fontWeight: '900', textTransform: 'uppercase', marginBottom: 6 },
   relatedTitle: { color: colors.text, fontWeight: '700', fontSize: 15, lineHeight: 20 },
 });

@@ -127,6 +127,6 @@ const makeStyles = (colors) => StyleSheet.create({
   date: { color: colors.textFaint, fontSize: 12 },
   removeBtn: { borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12 },
   pager: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, paddingVertical: 24 },
-  pageBtn: { backgroundColor: 'rgba(30,41,59,0.5)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: radius.sm },
+  pageBtn: { backgroundColor: colors.surfaceAlpha, paddingVertical: 8, paddingHorizontal: 16, borderRadius: radius.sm },
   pageBtnText: { color: colors.white, fontWeight: '700' },
 });

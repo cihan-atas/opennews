@@ -77,15 +77,16 @@ export default function RssReaderScreen() {
   const pollRef = useRef(null);
   const pollTitleRef = useRef(null);
 
-  // Makale modalı: aşağı çekince kapat (tutamaçtan sürükle)
+  // Makale modalı: kartın her yerinden aşağı çekince kapat (içerik en üstteyken)
   const articleY = useRef(new Animated.Value(0)).current;
+  const articleScrollY = useRef(0);
   useEffect(() => { if (selectedArticle) articleY.setValue(0); }, [selectedArticle, articleY]);
   const articlePan = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => g.dy > 6 && Math.abs(g.dy) > Math.abs(g.dx),
-      onPanResponderMove: (_, g) => { if (g.dy > 0) articleY.setValue(g.dy); },
+      onMoveShouldSetPanResponder: (_, g) => articleScrollY.current <= 0 && g.dy > 8 && g.dy > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => { articleY.setValue(Math.max(0, g.dy)); },
       onPanResponderRelease: (_, g) => {
-        if (g.dy > 130 || g.vy > 1.2) {
+        if (g.dy > 120 || g.vy > 1.1) {
           Animated.timing(articleY, { toValue: 800, duration: 200, useNativeDriver: true }).start(() => setSelectedArticle(null));
         } else {
           Animated.spring(articleY, { toValue: 0, useNativeDriver: true }).start();
@@ -473,7 +474,7 @@ export default function RssReaderScreen() {
         </View>
       ) : (
         <>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.toolbar}>
+          <View style={styles.toolbar}>
             <Pressable onPress={() => { setShowSaved(false); setShowTrending(false); loadArticles(selectedList.id); }} disabled={loadingArticles} style={styles.toolBtn}>
               <Text style={{ color: colors.textMuted, fontWeight: '700' }}>{loadingArticles ? '⏳' : '↻'} Yenile</Text>
             </Pressable>
@@ -489,7 +490,7 @@ export default function RssReaderScreen() {
             <Pressable onPress={() => { setShowCommunity(true); if (communityFeeds.length === 0) fetchCommunity(); }} style={[styles.toolBtn, { borderColor: 'rgba(99,102,241,0.3)' }]}>
               <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>🌐 Topluluk</Text>
             </Pressable>
-          </ScrollView>
+          </View>
 
           {articles.length > 0 && (
             <TextInput
@@ -852,17 +853,20 @@ export default function RssReaderScreen() {
       {/* Makale modalı */}
       <Modal visible={!!selectedArticle} transparent animationType="slide" onRequestClose={() => setSelectedArticle(null)}>
         <View style={styles.sheetOverlay}>
-          <Animated.View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: '92%', transform: [{ translateY: articleY }] }]}>
-            <View style={{ paddingVertical: 10, alignItems: 'center' }} {...articlePan.panHandlers}>
+          <Animated.View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: '92%', transform: [{ translateY: articleY }] }]} {...articlePan.panHandlers}>
+            <View style={{ paddingVertical: 10, alignItems: 'center' }}>
               <View style={{ width: 44, height: 5, borderRadius: 3, backgroundColor: colors.textDim, opacity: 0.6 }} />
             </View>
             <View style={styles.sheetHeader}>
               <Text style={[styles.feedBadge, { color: feedColor(selectedArticle?.feed_title), backgroundColor: `${feedColor(selectedArticle?.feed_title)}22` }]}>
                 {selectedArticle?.feed_title}
               </Text>
-              <Pressable onPress={() => setSelectedArticle(null)} hitSlop={16} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: colors.text, fontSize: 18 }}>✕</Text></Pressable>
+              <Pressable onPress={() => setSelectedArticle(null)} hitSlop={16} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.chip, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: colors.text, fontSize: 18 }}>✕</Text></Pressable>
             </View>
-            <ScrollView>
+            <ScrollView
+              onScroll={(e) => { articleScrollY.current = e.nativeEvent.contentOffset.y; }}
+              scrollEventThrottle={16}
+            >
               <Text style={styles.modalTitle}>{selectedArticle?.title}</Text>
 
               <View style={styles.summaryCard}>
@@ -918,8 +922,8 @@ export default function RssReaderScreen() {
                       { key: 'long', label: '🎙️ 2-4dk' },
                     ].map((opt) => (
                       <Pressable key={opt.key} onPress={() => createPodcast(opt.key)}
-                        style={[styles.modalBtn, { borderWidth: 1, borderColor: 'rgba(99,102,241,0.4)', backgroundColor: 'rgba(99,102,241,0.12)' }]}>
-                        <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>{opt.label}</Text>
+                        style={[styles.modalBtn, { borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.primarySoft }]}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{opt.label}</Text>
                       </Pressable>
                     ))}
                     <Pressable onPress={() => setShowLengthPicker(false)} style={[styles.modalBtn, styles.outlineBtn]}>
@@ -942,35 +946,35 @@ const makeStyles = (colors) => StyleSheet.create({
   header: { paddingHorizontal: 16, paddingBottom: 8 },
   h1: { color: colors.text, fontSize: 24, fontWeight: '900', marginBottom: 12 },
   createRow: { flexDirection: 'row', gap: 8 },
-  createInput: { flex: 1, backgroundColor: 'rgba(2,6,23,0.5)', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 10, color: colors.text },
+  createInput: { flex: 1, backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 10, color: colors.text },
   addBtn: { paddingHorizontal: 16, justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.primary },
   addBtnText: { color: colors.white, fontWeight: '800', fontSize: 16 },
-  listChip: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 9, paddingHorizontal: 14, borderRadius: radius.sm, borderWidth: 1, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.04)' },
+  listChip: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 9, paddingHorizontal: 14, borderRadius: radius.sm, borderWidth: 1, borderColor: 'transparent', backgroundColor: colors.chip },
   listChipActive: { borderColor: 'rgba(99,102,241,0.25)', backgroundColor: colors.primarySoft },
-  listCount: { color: colors.textFaint, fontSize: 11, backgroundColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  toolbar: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
-  toolBtn: { paddingVertical: 9, paddingHorizontal: 16, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.05)' },
-  search: { marginHorizontal: 16, backgroundColor: 'rgba(2,6,23,0.5)', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 10, color: colors.text, marginBottom: 4 },
-  filterChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.05)' },
-  trendAction: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.04)' },
+  listCount: { color: colors.textFaint, fontSize: 11, backgroundColor: colors.chip, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
+  toolBtn: { paddingVertical: 11, paddingHorizontal: 16, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.chip },
+  search: { marginHorizontal: 16, backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 10, color: colors.text, marginBottom: 4 },
+  filterChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: colors.chip },
+  trendAction: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.chip },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  article: { backgroundColor: 'rgba(15,23,42,0.5)', borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.md, padding: 16 },
+  article: { backgroundColor: colors.surfaceAlpha, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.md, padding: 16 },
   feedBadge: { fontSize: 11, fontWeight: '800', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, textTransform: 'uppercase', overflow: 'hidden' },
   podcastBadge: { fontSize: 11, fontWeight: '800', color: colors.success, backgroundColor: 'rgba(16,185,129,0.1)', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, overflow: 'hidden', marginLeft: 'auto' },
   articleTitle: { color: colors.text, fontSize: 16, fontWeight: '700', lineHeight: 22, marginBottom: 6 },
   articleSummary: { color: colors.textFaint, fontSize: 13, lineHeight: 19 },
-  sheetOverlay: { flex: 1, backgroundColor: 'rgba(2,6,23,0.7)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: 'rgba(10,15,30,0.99)', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, borderWidth: 1, borderColor: colors.border },
+  sheetOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
+  sheet: { backgroundColor: colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, borderWidth: 1, borderColor: colors.border },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
   menuItem: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 14, paddingHorizontal: 16, marginBottom: 10 },
-  feedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: radius.sm, marginBottom: 6 },
+  feedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: colors.chip, borderRadius: radius.sm, marginBottom: 6 },
   removeFeedBtn: { borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 },
   modalTitle: { color: colors.text, fontSize: 22, fontWeight: '900', lineHeight: 28, marginBottom: 18 },
   summaryCard: { backgroundColor: 'rgba(99,102,241,0.06)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.12)', borderRadius: radius.md, padding: 16, marginBottom: 18 },
   summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   summaryLabel: { color: colors.primaryLight, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
-  langToggle: { flexDirection: 'row', backgroundColor: 'rgba(2,6,23,0.6)', borderRadius: 10, padding: 3, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)' },
+  langToggle: { flexDirection: 'row', backgroundColor: colors.overlay, borderRadius: 10, padding: 3, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)' },
   langBtn: { paddingVertical: 4, paddingHorizontal: 9, borderRadius: 7 },
   summaryText: { color: '#cbd5e1', fontSize: 15, lineHeight: 24 },
   modalBtn: { flex: 1, minWidth: 130, paddingVertical: 13, paddingHorizontal: 16, borderRadius: radius.md, alignItems: 'center' },

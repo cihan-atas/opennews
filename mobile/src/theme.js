@@ -5,6 +5,9 @@ export const darkColors = {
   card: 'rgba(15, 23, 42, 0.98)',
   border: 'rgba(255, 255, 255, 0.1)',
   borderSoft: 'rgba(255, 255, 255, 0.05)',
+  inputBg: 'rgba(2, 6, 23, 0.5)',
+  chip: 'rgba(255, 255, 255, 0.06)',
+  overlay: 'rgba(2, 6, 23, 0.7)',
 
   primary: '#6366f1',
   primaryLight: '#818cf8',
@@ -22,12 +25,15 @@ export const darkColors = {
 };
 
 export const lightColors = {
-  bg: '#f1f5f9',
+  bg: '#e7ecf2',
   surface: '#ffffff',
-  surfaceAlpha: 'rgba(255, 255, 255, 0.8)',
+  surfaceAlpha: 'rgba(255, 255, 255, 0.92)',
   card: 'rgba(255, 255, 255, 0.98)',
   border: 'rgba(0, 0, 0, 0.1)',
   borderSoft: 'rgba(0, 0, 0, 0.06)',
+  inputBg: 'rgba(0, 0, 0, 0.04)',
+  chip: 'rgba(0, 0, 0, 0.05)',
+  overlay: 'rgba(15, 23, 42, 0.4)',
 
   primary: '#6366f1',
   primaryLight: '#4f46e5',

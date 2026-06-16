@@ -149,7 +149,7 @@ const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   scroll: { flexGrow: 1, justifyContent: 'center', padding: 20 },
   card: {
-    backgroundColor: 'rgba(15,23,42,0.7)',
+    backgroundColor: colors.surfaceAlpha,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.lg,
@@ -159,7 +159,7 @@ const makeStyles = (colors) => StyleSheet.create({
   subtitle: { color: colors.textMuted, textAlign: 'center', marginTop: 12, marginBottom: 24, fontSize: 14 },
   label: { color: '#cbd5e1', fontSize: 13, marginBottom: 6, marginTop: 14 },
   input: {
-    backgroundColor: 'rgba(2,6,23,0.5)',
+    backgroundColor: colors.inputBg,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.sm,
