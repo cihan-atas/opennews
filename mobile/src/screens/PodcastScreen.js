@@ -172,9 +172,13 @@ export default function PodcastScreen() {
               >
                 <Text style={styles.playBtnText}>{isCurrent ? '✕ Kapat' : '▶ Oynat'}</Text>
               </Pressable>
-              {!!pod.source_url && (
+              {pod.news_id ? (
+                <Pressable onPress={() => navigation.navigate('Home', { openNewsId: pod.news_id })} style={styles.navBtn}>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>📰 Haberi Gör</Text>
+                </Pressable>
+              ) : !!pod.source_url && (
                 <Pressable onPress={() => Linking.openURL(pod.source_url)} style={styles.navBtn}>
-                  <Text style={{ color: colors.text, fontWeight: '700' }}>🔗 Kaynak</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>🔗 Kaynağa Git</Text>
                 </Pressable>
               )}
               <Pressable onPress={() => handleTranscriptPress(pod.id)} style={styles.navBtn}>
