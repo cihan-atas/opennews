@@ -1,4 +1,10 @@
-# AI-Powered News Bulletin & Podcast
+<p align="center">
+  <img src="assets/brand/opennews-banner.png" alt="OpenNews" width="560" />
+</p>
+
+<h1 align="center">OpenNews</h1>
+
+<p align="center"><em>AI destekli haber bülteni &amp; podcast platformu</em></p>
 
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.124-009688?style=flat&logo=fastapi)
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react)

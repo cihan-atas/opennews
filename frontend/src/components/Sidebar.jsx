@@ -166,7 +166,7 @@ function Sidebar({ isCollapsed = false, onToggle }) {
         )}
 
         <Link to="/home" style={{ ...styles.logo, textAlign: isCollapsed ? 'center' : 'left', paddingLeft: isCollapsed ? 0 : '0.5rem', marginBottom: isCollapsed ? '1.5rem' : '3rem' }}>
-          🌐{!isCollapsed && ' NewsFlow'}
+          🌐{!isCollapsed && ' OpenNews'}
         </Link>
         
         <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', marginBottom: '1rem' }}>

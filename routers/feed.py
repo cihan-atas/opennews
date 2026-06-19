@@ -34,7 +34,7 @@ def rss_feed(category_id: int = None, limit: int = 50):
         rss.set("xmlns:atom", "http://www.w3.org/2005/Atom")
         channel = SubElement(rss, "channel")
 
-        SubElement(channel, "title").text = "NewsFlow"
+        SubElement(channel, "title").text = "OpenNews"
         SubElement(channel, "description").text = "AI destekli kişisel haber akışı"
         SubElement(channel, "language").text = "tr"
 

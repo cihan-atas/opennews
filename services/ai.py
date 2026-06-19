@@ -284,7 +284,7 @@ def _openrouter_generate(prompt: str) -> str:
         messages=[{"role": "user", "content": prompt}],
         extra_headers={
             "HTTP-Referer": settings.FRONTEND_URL,
-            "X-Title": "NewsFlow",
+            "X-Title": "OpenNews",
         },
     )
     return _strip_think(response.choices[0].message.content.strip())

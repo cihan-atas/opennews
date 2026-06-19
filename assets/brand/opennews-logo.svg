@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" fill="none">
+  <defs>
+    <linearGradient id="onTile" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#4338ca"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="360" rx="48" fill="#0b1220"/>
+  <!-- mark -->
+  <g transform="translate(44,40) scale(0.273)">
+    <rect width="1024" height="1024" rx="232" fill="url(#onTile)"/>
+    <g stroke="#ffffff" fill="none" stroke-linecap="round">
+      <path d="M174.9 354.8 A372 372 0 1 1 272.9 796.9" stroke-width="60"/>
+      <path d="M388 468 A168 168 0 0 1 556 636" stroke-width="70"/>
+      <path d="M388 336 A300 300 0 0 1 688 636" stroke-width="70"/>
+    </g>
+    <circle cx="388" cy="636" r="62" fill="#ffffff"/>
+  </g>
+  <!-- wordmark -->
+  <text x="378" y="192" font-family="'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif" font-size="132" font-weight="800" letter-spacing="-2">
+    <tspan fill="#a5b4fc">Open</tspan><tspan fill="#ffffff">News</tspan>
+  </text>
+  <text x="382" y="262" font-family="'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif" font-size="40" font-weight="500" letter-spacing="1" fill="#64748b">AI haber bülteni &amp; podcast</text>
+</svg>

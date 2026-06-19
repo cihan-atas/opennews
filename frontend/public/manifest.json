@@ -1,6 +1,6 @@
 {
-  "name": "NewsFlow",
-  "short_name": "NewsFlow",
+  "name": "OpenNews",
+  "short_name": "OpenNews",
   "description": "AI destekli kişisel haber akışı ve podcast uygulaması.",
   "start_url": "/home",
   "display": "standalone",

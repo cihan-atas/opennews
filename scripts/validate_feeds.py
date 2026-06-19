@@ -14,7 +14,7 @@ from pathlib import Path
 import requests
 import feedparser
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (NewsFlow FeedValidator)"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (OpenNews FeedValidator)"}
 
 # category_name -> [ (kaynak adı, feed url), ... ]
 CANDIDATES = {
