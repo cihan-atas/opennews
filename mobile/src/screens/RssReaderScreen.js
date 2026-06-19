@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View, Text, TextInput, Pressable, FlatList, ScrollView, Modal, StyleSheet,
-  ActivityIndicator, Linking, Animated, PanResponder,
+  ActivityIndicator, Linking, Animated, PanResponder, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiFetch } from '../api/client';
@@ -42,6 +42,7 @@ export default function RssReaderScreen() {
   const [menuConfirm, setMenuConfirm] = useState(false); // silme onay adımı
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeFeedFilter, setActiveFeedFilter] = useState(null);
 
   const [selectedArticle, setSelectedArticle] = useState(null);
@@ -100,6 +101,12 @@ export default function RssReaderScreen() {
     fetchSaved();
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
+
+  // Aramayı geciktir: her tuşta ağır liste filtresini tetikleyip klavyeyi kapatmamak için
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm), 220);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
 
   const fetchSaved = async () => {
     setLoadingSaved(true);
@@ -177,7 +184,7 @@ export default function RssReaderScreen() {
 
   const loadArticles = async (listId) => {
     setLoadingArticles(true);
-    setArticles([]); setSearchTerm(''); setActiveFeedFilter(null);
+    setArticles([]); setSearchTerm(''); setDebouncedSearch(''); setActiveFeedFilter(null);
     try {
       const res = await apiFetch(`/rss-reader/lists/${listId}/articles`);
       if (res.ok) setArticles(await res.json());
@@ -399,12 +406,12 @@ export default function RssReaderScreen() {
   const filteredArticles = useMemo(() => {
     let r = articles;
     if (activeFeedFilter) r = r.filter((a) => a.feed_title === activeFeedFilter);
-    if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.toLowerCase();
       r = r.filter((a) => a.title?.toLowerCase().includes(q) || a.feed_title?.toLowerCase().includes(q));
     }
     return r;
-  }, [articles, activeFeedFilter, searchTerm]);
+  }, [articles, activeFeedFilter, debouncedSearch]);
 
   const trendingFeedTitles = useMemo(() => {
     const seen = new Set();
@@ -609,6 +616,8 @@ export default function RssReaderScreen() {
               data={filteredArticles}
               keyExtractor={(a, i) => `${a.link || a.title}-${i}`}
               renderItem={renderArticle}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="none"
               contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 120 }}
               ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
               ListEmptyComponent={
@@ -664,7 +673,7 @@ export default function RssReaderScreen() {
 
       {/* Liste yeniden adlandırma modalı */}
       <Modal visible={!!renameTarget} transparent animationType="fade" onRequestClose={() => setRenameTarget(null)}>
-        <View style={[styles.sheetOverlay, { justifyContent: 'center', padding: 24 }]}>
+        <KeyboardAvoidingView style={[styles.sheetOverlay, { justifyContent: 'center', padding: 24 }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={[styles.sheet, { borderRadius: radius.lg, padding: 20 }]}>
             <Text style={styles.sheetTitle}>Listeyi Yeniden Adlandır</Text>
             <TextInput
@@ -685,11 +694,12 @@ export default function RssReaderScreen() {
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Feed yönetim modalı */}
       <Modal visible={showFeedManager} transparent animationType="slide" onRequestClose={() => setShowFeedManager(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.sheetOverlay}>
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
             <View style={styles.sheetHeader}>
@@ -710,7 +720,7 @@ export default function RssReaderScreen() {
                 <Text style={styles.addBtnText}>{addingFeed ? '…' : 'Ekle'}</Text>
               </Pressable>
             </View>
-            <ScrollView style={{ marginTop: 12, maxHeight: 320 }}>
+            <ScrollView style={{ marginTop: 12, maxHeight: 320 }} keyboardShouldPersistTaps="handled">
               {(selectedList?.feeds || []).map((f) => (
                 <View key={f.id} style={styles.feedRow}>
                   <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: feedColor(f.title || f.url) }} />
@@ -726,17 +736,19 @@ export default function RssReaderScreen() {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Topluluk kaynakları modalı */}
       <Modal visible={showCommunity} transparent animationType="slide" onRequestClose={() => setShowCommunity(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.sheetOverlay}>
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: '88%' }]}>
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>🌐 Topluluk Kaynakları</Text>
               <Pressable onPress={() => setShowCommunity(false)} hitSlop={12}><Text style={{ color: colors.textDim, fontSize: 20 }}>✕</Text></Pressable>
             </View>
-            <ScrollView>
+            <ScrollView keyboardShouldPersistTaps="handled">
               {communityLoading ? (
                 <ActivityIndicator color={colors.primaryLight} style={{ marginTop: 24 }} />
               ) : communityFeeds.length === 0 ? (
@@ -818,6 +830,7 @@ export default function RssReaderScreen() {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Liste Seçici Modal */}
