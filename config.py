@@ -39,14 +39,16 @@ class Settings(BaseSettings):
     # Groq — ücretsiz (AI_PROVIDER=groq için) ← önerilen
     # Key: console.groq.com → API Keys → Create API Key
     GROQ_API_KEY: str = ""
-    # Bulk model: haber özeti, yüksek hacim (14.4K istek/gün)
-    GROQ_MODEL: str = "llama-3.1-8b-instant"
-    # Kalite model: podcast script, çeviri, daha az ama önemli işler (1K istek/gün)
-    # meta-llama/llama-4-scout-17b-16e-instruct → en yeni Llama 4
-    # qwen/qwen3-32b                            → güçlü Türkçe, 60 RPM
-    GROQ_QUALITY_MODEL: str = "meta-llama/llama-4-scout-17b-16e-instruct"
-    # Segment model: TR/EN dil ayrımı — 70B güçlü, 14.4K/gün aynı limit
-    GROQ_SEGMENT_MODEL: str = "llama-3.3-70b-versatile"
+    # NOT (2026-07): Groq eski Llama/Qwen modellerini kullanımdan kaldırıyor
+    # (llama-3.1-8b-instant, llama-3.3-70b-versatile → 16 Ağu 2026;
+    #  llama-4-scout, qwen3-32b → 17 Tem 2026). Ücretsiz/developer tier etkilenir.
+    # Yeni öneri: openai/gpt-oss-20b (hızlı/bulk) ve openai/gpt-oss-120b (kalite).
+    # Bulk model: haber özeti, yüksek hacim
+    GROQ_MODEL: str = "openai/gpt-oss-20b"
+    # Kalite model: podcast script, çeviri, daha az ama önemli işler
+    GROQ_QUALITY_MODEL: str = "openai/gpt-oss-120b"
+    # Segment model: TR/EN dil ayrımı — hız için 20b yeterli
+    GROQ_SEGMENT_MODEL: str = "openai/gpt-oss-20b"
     # STT: konuşmadan metne (podcast transkripti)
     STT_PROVIDER: str = "groq"              # groq (whisper)
     GROQ_STT_MODEL: str = "whisper-large-v3-turbo"  # hız/doğruluk dengesi
