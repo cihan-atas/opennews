@@ -249,6 +249,10 @@ export default function HomeScreen() {
 
   const categories = [{ id: null, name: '🎯 İlgi Alanlarım' }, { id: 0, name: '🌐 Tümü' }, ...interests];
 
+  // Not: aşağıda FlatList'e ListHeaderComponent olarak renderHeader'ı FONKSİYON
+  // değil, ÜRETTİĞİ ELEMANI (renderHeader()) veriyoruz. Fonksiyon kimliği her
+  // render'da değişince FlatList header'ı (ve arama TextInput'unu) remount edip
+  // klavyeyi her tuşta kapatıyordu.
   const renderHeader = () => (
     <View>
       <Text style={styles.h1}>Günün Özeti</Text>
@@ -352,7 +356,7 @@ export default function HomeScreen() {
           data={newsList}
           keyExtractor={(n) => String(n.id)}
           renderItem={renderItem}
-          ListHeaderComponent={renderHeader}
+          ListHeaderComponent={renderHeader()}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}
           ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primaryLight} />}
