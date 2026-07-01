@@ -86,6 +86,39 @@ def _edge_synthesize(text: str, voice: str) -> bytes:
     return asyncio.run(_run())
 
 
+# Amazon Polly tek istekte en fazla 3000 karakter (billed text) kabul eder.
+# Uzun podcast metinleri bu sınırı aşar → cümle bazında parçalayıp birleştiriyoruz.
+_POLLY_MAX_CHARS = 2800
+
+
+def _split_for_polly(text: str, limit: int = _POLLY_MAX_CHARS) -> list:
+    """Metni Polly sınırının altında, cümle bütünlüğünü koruyan parçalara böler."""
+    import re
+    if len(text) <= limit:
+        return [text]
+    # Cümle sonlarından böl (nokta/ünlem/soru + boşluk veya satır sonu)
+    sentences = re.split(r'(?<=[.!?])\s+|\n+', text)
+    chunks, cur = [], ""
+    for s in sentences:
+        if not s:
+            continue
+        # Tek cümle bile sınırı aşıyorsa kelime kelime kır
+        while len(s) > limit:
+            head, s = s[:limit], s[limit:]
+            if cur:
+                chunks.append(cur); cur = ""
+            chunks.append(head)
+        if len(cur) + len(s) + 1 <= limit:
+            cur = f"{cur} {s}".strip()
+        else:
+            if cur:
+                chunks.append(cur)
+            cur = s
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
 def _polly_synthesize(text: str, voice: str) -> bytes:
     import boto3
     from botocore.exceptions import BotoCoreError, ClientError
@@ -99,19 +132,26 @@ def _polly_synthesize(text: str, voice: str) -> bytes:
         client_params["region_name"] = settings.AWS_REGION
 
     client = boto3.client("polly", **client_params)
-    
+
     is_ssml = text.strip().startswith("<speak>")
     text_type = "ssml" if is_ssml else "text"
+    # SSML'i bölmek riskli (etiket bütünlüğü); yalnızca düz metni parçalıyoruz.
+    parts = [text] if is_ssml else _split_for_polly(text)
 
     try:
-        response = client.synthesize_speech(
-            Text=text,
-            TextType=text_type,
-            OutputFormat="mp3",
-            VoiceId=voice,
-            Engine=settings.POLLY_ENGINE
-        )
-        return response["AudioStream"].read()
+        audio = bytearray()
+        for part in parts:
+            if not part.strip():
+                continue
+            response = client.synthesize_speech(
+                Text=part,
+                TextType=text_type,
+                OutputFormat="mp3",
+                VoiceId=voice,
+                Engine=settings.POLLY_ENGINE,
+            )
+            audio.extend(response["AudioStream"].read())
+        return bytes(audio)
     except (BotoCoreError, ClientError) as err:
         print(f"[TTS] Amazon Polly synthesis failed: {err}")
         raise err
