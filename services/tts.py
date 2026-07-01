@@ -9,7 +9,7 @@ Sağlayıcılar:
   Türkçe segmentler → tr-TR-EmelNeural / Burcu (Polly)
   İngilizce segmentler → en-US-AriaNeural / Joanna (Polly)
 """
-from config import settings
+from services.settings_store import settings  # DB→.env çözümlemeli proxy
 
 _EDGE_TR_VOICE = "tr-TR-EmelNeural"
 _EDGE_EN_VOICE = "en-US-AriaNeural"

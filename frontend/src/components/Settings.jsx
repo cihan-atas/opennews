@@ -4,11 +4,148 @@ import { fetchWithAuth } from '../Utils/api';
 import { useWindowSize } from '../Utils/useWindowSize';
 import { groupCategories } from '../Utils/categoryTree';
 
+// Bir alanın show_when koşulu, mevcut seçim değerlerine göre sağlanıyor mu?
+function fieldVisible(field, draft) {
+  const cond = field.show_when;
+  if (!cond) return true;
+  return (cond.in || []).includes(draft[cond.field]);
+}
+
+// Admin'e özel: API anahtarları & sağlayıcı ayarları (kategorilere ayrılmış).
+// Şema backend'den (GET /admin/settings) gelir; yalnızca değişen alanlar PUT edilir.
+function ApiKeysManager({ isMobile, showToast }) {
+  const [groups, setGroups] = useState([]);
+  const [draft, setDraft] = useState({});          // key -> düzenlenmiş değer
+  const [secretSet, setSecretSet] = useState({});  // key -> gizli anahtar kayıtlı mı
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { load(); }, []);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/admin/settings`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const initial = {};
+      const secrets = {};
+      (data.groups || []).forEach(g => g.fields.forEach(f => {
+        initial[f.key] = f.secret ? '' : (f.value ?? '');   // gizli alan boş başlar
+        if (f.secret) secrets[f.key] = !!f.is_set;
+      }));
+      setGroups(data.groups || []);
+      setDraft(initial);
+      setSecretSet(secrets);
+    } catch (_) {
+      showToast('API ayarları yüklenemedi.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const setVal = (key, value) => setDraft(prev => ({ ...prev, [key]: value }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    // Payload: görünür alanları gönder. Gizli alanlarda yalnızca kullanıcı yeni değer
+    // yazdıysa (boş değilse) gönder — boş = "dokunma".
+    const values = {};
+    groups.forEach(g => g.fields.forEach(f => {
+      if (!fieldVisible(f, draft)) return;
+      const v = draft[f.key] ?? '';
+      if (f.secret) { if (v !== '') values[f.key] = v; }
+      else { values[f.key] = v; }
+    }));
+    try {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/admin/settings`, {
+        method: 'PUT',
+        body: JSON.stringify({ values }),
+      });
+      if (!res.ok) throw new Error();
+      showToast('API ayarları kaydedildi.', 'success');
+      await load();
+    } catch (_) {
+      showToast('Kaydedilemedi.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const s = {
+    section: { background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '28px', padding: isMobile ? '1.5rem' : '2.5rem', gridColumn: isMobile ? 'auto' : 'span 2' },
+    group: { marginBottom: '2rem', paddingBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+    groupHead: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '4px' },
+    badgeReq: { fontSize: '0.65rem', fontWeight: 800, letterSpacing: '0.5px', color: '#fca5a5', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '3px 8px' },
+    badgeOpt: { fontSize: '0.65rem', fontWeight: 800, letterSpacing: '0.5px', color: '#94a3b8', background: 'rgba(148,163,184,0.12)', border: '1px solid rgba(148,163,184,0.25)', borderRadius: '8px', padding: '3px 8px' },
+    note: { color: '#94a3b8', fontSize: '0.85rem', margin: '4px 0 16px', lineHeight: 1.5 },
+    label: { display: 'block', color: '#cbd5e1', fontSize: '0.8rem', fontWeight: 700, marginBottom: '6px' },
+    help: { color: '#64748b', fontSize: '0.72rem', marginTop: '4px' },
+    input: { width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'rgba(2,6,23,0.5)', color: 'white', outline: 'none', boxSizing: 'border-box' },
+    field: { marginBottom: '14px' },
+  };
+
+  if (loading) return <div style={s.section}><p style={{ color: '#94a3b8' }}>API ayarları yükleniyor…</p></div>;
+
+  return (
+    <div style={s.section}>
+      <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.6rem' }}>🔑 API Anahtarları & Sağlayıcılar</h3>
+      <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: 0, marginBottom: '2rem' }}>
+        Yalnızca adminler görür. Her kategoride bir sağlayıcı seç ve <strong style={{ color: '#cbd5e1' }}>sadece onun</strong> anahtarını gir.
+        Kırmızı <span style={{ color: '#fca5a5' }}>ZORUNLU</span> kategoriler podcast üretimi için gereklidir; diğerleri opsiyoneldir.
+      </p>
+
+      {groups.map(g => (
+        <div key={g.id} style={s.group}>
+          <div style={s.groupHead}>
+            <span style={{ fontSize: '1.2rem', fontWeight: 800 }}>{g.icon} {g.title}</span>
+            <span style={g.required ? s.badgeReq : s.badgeOpt}>{g.required ? 'ZORUNLU' : 'OPSİYONEL'}</span>
+          </div>
+          {g.note && <p style={s.note}>{g.note}</p>}
+
+          {g.fields.filter(f => fieldVisible(f, draft)).map(f => (
+            <div key={f.key} style={s.field}>
+              <label style={s.label}>
+                {f.label}{f.required ? ' *' : ''}
+                {f.secret && secretSet[f.key] && <span style={{ color: '#34d399', fontWeight: 600, marginLeft: '8px', fontSize: '0.72rem' }}>● kayıtlı</span>}
+              </label>
+              {f.type === 'select' ? (
+                <select style={s.input} value={draft[f.key] ?? ''} onChange={e => setVal(f.key, e.target.value)}>
+                  {(f.options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              ) : (
+                <input
+                  style={s.input}
+                  type={f.type === 'password' ? 'password' : 'text'}
+                  value={draft[f.key] ?? ''}
+                  placeholder={f.secret && secretSet[f.key] ? '•••••••• (değiştirmek için yaz)' : ''}
+                  autoComplete="off"
+                  onChange={e => setVal(f.key, e.target.value)}
+                />
+              )}
+              {f.help && <div style={s.help}>{f.help}</div>}
+            </div>
+          ))}
+        </div>
+      ))}
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        style={{ width: '100%', maxWidth: '400px', padding: '14px', borderRadius: '14px', border: 'none', background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', color: 'white', fontWeight: 'bold', cursor: saving ? 'not-allowed' : 'pointer', boxShadow: '0 10px 20px -5px rgba(99, 102, 241, 0.3)' }}
+      >
+        {saving ? 'Kaydediliyor…' : 'API Ayarlarını Kaydet'}
+      </button>
+    </div>
+  );
+}
+
 function Settings() {
   const navigate = useNavigate();
   const { isMobile } = useWindowSize();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
   const [allCategories, setAllCategories] = useState([]);
   const groupedCategories = useMemo(() => groupCategories(allCategories), [allCategories]);
   const [selectedInterests, setSelectedInterests] = useState([]);
@@ -49,6 +186,7 @@ function Settings() {
         const userData = await userRes.json();
         setUsername(userData.username);
         setEmail(userData.email);
+        setIsAdmin(!!userData.is_admin);
         setSelectedInterests(userData.interests.map(i => i.id));
       }
 
@@ -180,6 +318,9 @@ function Settings() {
               <div><label style={{ color: '#64748b', fontSize: '0.85rem', fontWeight: '700', textTransform: 'uppercase' }}>E-posta Adresi</label><p style={{ margin: '8px 0', fontSize: '1.3rem', fontWeight: '600' }}>{email}</p></div>
             </div>
           </div>
+
+          {/* API ANAHTARLARI (yalnızca admin) */}
+          {isAdmin && <ApiKeysManager isMobile={isMobile} showToast={showToast} />}
 
           {/* İSTATİSTİKLER */}
           {stats && (

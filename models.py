@@ -246,3 +246,17 @@ class ReadLaterItem(Base):
 
     user = relationship("User")
     news = relationship("News")
+
+
+class AppSetting(Base):
+    """Uygulama geneli ayar/anahtar deposu (key/value).
+
+    API anahtarları ve sağlayıcı seçimleri burada global olarak tutulur; admin
+    Ayarlar ekranından düzenler. Servisler değeri DB'den okur, boşsa .env'e düşer
+    (bkz. services/settings_store.py). Kullanıcıya özel DEĞİLDİR."""
+    __tablename__ = "app_settings"
+
+    key = Column(String, primary_key=True, index=True)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))

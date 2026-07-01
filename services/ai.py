@@ -13,7 +13,7 @@ generate(prompt, quality=False):
   quality=True  → GROQ_QUALITY_MODEL (llama-4-scout veya qwen3-32b — podcast script)
 """
 import re
-from config import settings
+from services.settings_store import settings  # DB→.env çözümlemeli proxy
 
 _VERTEX_MODEL = "publishers/google/models/gemini-2.5-flash"
 # Qwen3 gibi thinking-mode modeller <think>...</think> bloğu döndürür — temizle.
@@ -242,16 +242,21 @@ Metin:
 #                      = qwen/qwen3-32b               → 1K istek/gün, 60 RPM, güçlü Türkçe
 
 _GROQ_CLIENT = None
+_GROQ_CLIENT_KEY = None
 
 
 def _get_groq_client():
-    global _GROQ_CLIENT
-    if _GROQ_CLIENT is None:
+    # Anahtar admin tarafından Ayarlar'dan değiştirilebildiği için, client'ı
+    # anahtara göre önbellekle; anahtar değişince yeniden kur.
+    global _GROQ_CLIENT, _GROQ_CLIENT_KEY
+    api_key = settings.GROQ_API_KEY
+    if _GROQ_CLIENT is None or api_key != _GROQ_CLIENT_KEY:
         from openai import OpenAI
         _GROQ_CLIENT = OpenAI(
-            api_key=settings.GROQ_API_KEY,
+            api_key=api_key,
             base_url="https://api.groq.com/openai/v1",
         )
+        _GROQ_CLIENT_KEY = api_key
     return _GROQ_CLIENT
 
 

@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import func
 import models
 from dependencies import db_dependency, admin_dependency
+from services import settings_store
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -83,3 +84,32 @@ def delete_user(user_id: int, db: db_dependency, current_admin: admin_dependency
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
     db.delete(user)
     db.commit()
+
+
+# ── Uygulama Ayarları / API Anahtarları (admin) ───────────────────────────────
+@router.get("/settings")
+def get_app_settings(current_admin: admin_dependency):
+    """Ayarlar ekranı şeması + mevcut durum (gizli anahtarlar maskeli/is_set).
+
+    Web ve mobil bu şemayı doğrudan render eder. Gizli alanların değeri asla dönmez,
+    yalnızca ayarlı olup olmadığı (is_set) bilgisi gelir."""
+    return {"groups": settings_store.build_admin_view()}
+
+
+@router.put("/settings")
+def update_app_settings(payload: dict, db: db_dependency, current_admin: admin_dependency):
+    """key→value ayarlarını kaydeder.
+
+    - value boş string ("") ise kayıt silinir → .env değerine geri düşülür.
+    - Gizli alanlar için boş gönderilmesi 'değiştirme' anlamına gelir; istemci
+      dokunulmayan gizli alanları payload'a KOYMAMALIDIR.
+    - Yalnızca yönetilen (şemadaki) anahtarlar kabul edilir.
+    """
+    values = payload.get("values", payload)
+    if not isinstance(values, dict):
+        raise HTTPException(status_code=400, detail="Geçersiz gövde: 'values' bir nesne olmalı.")
+    unknown = [k for k in values if k not in settings_store.MANAGED_KEYS]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Bilinmeyen ayar anahtar(lar)ı: {', '.join(unknown)}")
+    settings_store.set_many(db, values)
+    return {"status": "ok", "updated": [k for k in values]}

@@ -9,7 +9,7 @@ signed_url -> geçici erişim linki (public base varsa onu döner)
 delete  -> nesneyi siler
 """
 import os
-from config import settings
+from services.settings_store import settings  # DB→.env çözümlemeli proxy
 
 
 LOCAL_AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "audio_files")

@@ -9,7 +9,7 @@ Sağlayıcılar:
 OpenRouter ve NVIDIA NIM embedding API'si sunmadığından yerel model (local) önerilir.
 Model: paraphrase-multilingual-mpnet-base-v2 → 768-dim, 50+ dil, Türkçe dahil.
 """
-from config import settings
+from services.settings_store import settings  # DB→.env çözümlemeli proxy
 
 _VERTEX_MODEL = "publishers/google/models/text-embedding-005"
 _DIM = 768

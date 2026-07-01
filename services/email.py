@@ -8,7 +8,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.utils import formataddr
 
-from config import settings
+from services.settings_store import settings  # DB→.env çözümlemeli proxy
 
 
 def _smtp_configured() -> bool:
