@@ -107,6 +107,13 @@ function ApiKeysManager({ isMobile, showToast }) {
             <div key={f.key} style={s.field}>
               <label style={s.label}>
                 {f.label}{f.required ? ' *' : ''}
+                {f.help && (
+                  <span
+                    title={f.help}
+                    onClick={() => { if (f.help_url) window.open(f.help_url, '_blank', 'noopener'); else alert(f.help); }}
+                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '16px', height: '16px', borderRadius: '50%', border: '1px solid #818cf8', color: '#818cf8', fontSize: '0.65rem', fontWeight: 800, marginLeft: '8px', cursor: 'pointer' }}
+                  >i</span>
+                )}
                 {f.secret && secretSet[f.key] && <span style={{ color: '#34d399', fontWeight: 600, marginLeft: '8px', fontSize: '0.72rem' }}>● kayıtlı</span>}
               </label>
               {f.type === 'select' ? (

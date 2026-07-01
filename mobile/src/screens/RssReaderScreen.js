@@ -57,6 +57,7 @@ export default function RssReaderScreen() {
   const [communityFeeds, setCommunityFeeds] = useState([]);
   const [communityLoading, setCommunityLoading] = useState(false);
   const [communityFilter, setCommunityFilter] = useState('');
+  const [communitySearch, setCommunitySearch] = useState('');
   const [submitUrl, setSubmitUrl] = useState('');
   const [submitCategory, setSubmitCategory] = useState(null);
   const [categories, setCategories] = useState([]);
@@ -755,6 +756,24 @@ export default function RssReaderScreen() {
                 <Text style={{ color: colors.textFaint, textAlign: 'center', marginTop: 24 }}>Henüz onaylı kaynak yok.</Text>
               ) : (
                 <>
+                  {/* Kaynak/kategori arama */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 12, marginBottom: 10 }}>
+                    <Text style={{ color: colors.textFaint, fontSize: 15 }}>🔍</Text>
+                    <TextInput
+                      style={{ flex: 1, color: colors.text, paddingVertical: 10 }}
+                      placeholder="Kaynak veya kategori ara (ör. spor)"
+                      placeholderTextColor={colors.textFaint}
+                      value={communitySearch}
+                      onChangeText={setCommunitySearch}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    {communitySearch.length > 0 && (
+                      <Pressable onPress={() => setCommunitySearch('')} hitSlop={8}>
+                        <Text style={{ color: colors.textFaint, fontSize: 14 }}>✕</Text>
+                      </Pressable>
+                    )}
+                  </View>
                   {/* Kategori filtre butonları */}
                   {(() => {
                     const cats = [...new Set(communityFeeds.map(f => f.category).filter(Boolean))];
@@ -774,7 +793,14 @@ export default function RssReaderScreen() {
                     ) : null;
                   })()}
                   {communityFeeds
-                    .filter(f => !communityFilter || f.category === communityFilter)
+                    .filter(f => {
+                      if (communityFilter && f.category !== communityFilter) return false;
+                      const q = communitySearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return (f.title || '').toLowerCase().includes(q)
+                        || (f.url || '').toLowerCase().includes(q)
+                        || (f.category || '').toLowerCase().includes(q);
+                    })
                     .map((feed) => (
                       <View key={feed.id} style={styles.feedRow}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: feedColor(feed.url), flexShrink: 0, marginTop: 4 }} />

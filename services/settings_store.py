@@ -266,6 +266,29 @@ SETTINGS_SCHEMA = [
     },
 ]
 
+# Anahtar başına "nasıl alınır?" bilgisi (adım + bağlantı). Tek kaynak; hem web
+# hem mobil bu bilgiyi info butonunda gösterir.
+HELP = {
+    "GROQ_API_KEY": ("Groq: console.groq.com → API Keys → Create API Key. Ücretsiz.",
+                     "https://console.groq.com/keys"),
+    "GEMINI_API_KEY": ("Google AI Studio: aistudio.google.com → Get API key. Ücretsiz kota var.",
+                       "https://aistudio.google.com/apikey"),
+    "OPENAI_API_KEY": ("OpenAI: platform.openai.com → API keys → Create new secret key. Ücretli.",
+                       "https://platform.openai.com/api-keys"),
+    "OPENROUTER_API_KEY": ("OpenRouter: openrouter.ai → Keys → Create Key. Bazı modeller ücretsiz.",
+                           "https://openrouter.ai/keys"),
+    "NVIDIA_API_KEY": ("NVIDIA: build.nvidia.com → bir model seç → Get API Key.",
+                       "https://build.nvidia.com"),
+    "AWS_ACCESS_KEY_ID": ("AWS: Console → IAM → Users → Security credentials → Create access key. Polly izni gerekir.",
+                          "https://console.aws.amazon.com/iam/"),
+    "AWS_SECRET_ACCESS_KEY": ("Access key oluşturunca gösterilen 'Secret access key' değeri (tek sefer görünür).",
+                              "https://console.aws.amazon.com/iam/"),
+    "S3_ACCESS_KEY_ID": ("S3 sağlayıcının panelinden (Cloudflare R2 / MinIO / AWS) erişim anahtarı oluştur.", ""),
+    "S3_SECRET_ACCESS_KEY": ("Erişim anahtarıyla birlikte verilen gizli anahtar.", ""),
+    "SMTP_PASSWORD": ("Gmail: Google Hesabı → Güvenlik → 2 Adımlı Doğrulama → Uygulama şifreleri.",
+                      "https://myaccount.google.com/apppasswords"),
+}
+
 # Şemadan türeyen düz kümeler.
 MANAGED_KEYS = {f["key"] for section in SETTINGS_SCHEMA for f in section["fields"]}
 SECRET_KEYS = {f["key"] for section in SETTINGS_SCHEMA for f in section["fields"] if f.get("secret")}
@@ -298,6 +321,8 @@ def build_user_view(db, user_id: int) -> list:
                 item["value"] = "" if effective is None else str(effective)
                 item["is_set"] = has_own
             item["own"] = has_own
+            if key in HELP:
+                item["help"], item["help_url"] = HELP[key]
             fields.append(item)
         out.append({**section, "fields": fields})
     return out

@@ -30,6 +30,7 @@ export default function HomeScreen() {
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [search, setSearch] = useState('');
+  const [catSearch, setCatSearch] = useState('');
   const [searchHistory, setSearchHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState(null); // null=ilgi, 0=tümü, id=kategori
@@ -302,8 +303,33 @@ export default function HomeScreen() {
         </Text>
       </Pressable>
 
+      {/* Kategori arama (ör. siber) — çok sayıda kategori arasında hızlı bulma */}
+      <View style={styles.catSearchRow}>
+        <Text style={{ color: colors.textFaint, fontSize: 14 }}>🔍</Text>
+        <TextInput
+          style={{ flex: 1, color: colors.text, paddingVertical: 8, fontSize: 14 }}
+          placeholder="Kategori ara (ör. siber)"
+          placeholderTextColor={colors.textFaint}
+          value={catSearch}
+          onChangeText={setCatSearch}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {catSearch.length > 0 && (
+          <Pressable onPress={() => setCatSearch('')} hitSlop={8}>
+            <Text style={{ color: colors.textFaint, fontSize: 13 }}>✕</Text>
+          </Pressable>
+        )}
+      </View>
+
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 18 }} contentContainerStyle={{ gap: 8 }}>
-        {categories.map((cat) => {
+        {categories
+          .filter((cat) => {
+            const q = catSearch.trim().toLowerCase();
+            if (!q) return true;
+            return (cat.name || '').toLowerCase().includes(q);
+          })
+          .map((cat) => {
           const active = activeCategoryId === cat.id;
           return (
             <Pressable key={cat.id ?? 'interests'} onPress={() => handleCategory(cat.id)}
@@ -402,6 +428,7 @@ const makeStyles = (colors) => StyleSheet.create({
   h1: { color: colors.text, fontSize: 30, fontWeight: '900', paddingHorizontal: 0, marginTop: 8 },
   sub: { color: colors.textMuted, fontSize: 15, marginTop: 6, marginBottom: 18 },
   searchRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
+  catSearchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 12, marginBottom: 10 },
   historyBox: { backgroundColor: colors.surfaceAlpha, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.md, padding: 6, marginTop: -8, marginBottom: 18 },
   historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6 },
   historyTitle: { color: colors.textFaint, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  View, Text, TextInput, Pressable, ScrollView, Modal, StyleSheet, Switch,
+  View, Text, TextInput, Pressable, ScrollView, Modal, StyleSheet, Switch, Alert, Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiFetch } from '../api/client';
@@ -100,10 +100,26 @@ function ApiKeysManagerMobile({ colors, styles, showToast }) {
 
           {g.fields.filter((f) => fieldVisible(f, draft)).map((f) => (
             <View key={f.key} style={{ marginBottom: 12 }}>
-              <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '700', marginBottom: 6 }}>
-                {f.label}{f.required ? ' *' : ''}
-                {f.secret && secretSet[f.key] ? '  ● kayıtlı' : ''}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '700' }}>
+                  {f.label}{f.required ? ' *' : ''}
+                  {f.secret && secretSet[f.key] ? '  ● kayıtlı' : ''}
+                </Text>
+                {!!f.help && (
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => Alert.alert(
+                      `${f.label} — nasıl alınır?`,
+                      f.help + (f.help_url ? `\n\n${f.help_url}` : ''),
+                      f.help_url
+                        ? [{ text: 'Aç', onPress: () => Linking.openURL(f.help_url) }, { text: 'Kapat', style: 'cancel' }]
+                        : [{ text: 'Tamam' }],
+                    )}
+                    style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: colors.primaryLight, fontSize: 11, fontWeight: '800' }}>i</Text>
+                  </Pressable>
+                )}
+              </View>
               {f.type === 'select' ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   {(f.options || []).map((o) => {
