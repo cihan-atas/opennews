@@ -7,6 +7,7 @@ from utils import upload_to_gcs, get_embedding, embeddings_enabled, delete_from_
 import services.ai as ai_service
 import services.tts as tts_service
 import services.push as push_service
+from services import settings_store
 from database import SessionLocal
 import models
 import time
@@ -69,6 +70,7 @@ def _enforce_podcast_cap(db, user_id: int, limit: int = MAX_ACTIVE_PODCASTS) -> 
 def process_news_and_tts_task(news_id: int, user_id: int, length: str = "medium"):
     db = SessionLocal()
     tmp_path = f"/tmp/news_{news_id}.mp3"
+    _uctx = settings_store.user_context(user_id); _uctx.__enter__()  # kullanıcının kendi anahtarları
     try:
         # 1. DB'den haberi çek
         news = db.query(models.News).filter(models.News.id == news_id).first()
@@ -161,6 +163,7 @@ def process_news_and_tts_task(news_id: int, user_id: int, length: str = "medium"
         return {"status": "error", "message": str(e)}
 
     finally:
+        _uctx.__exit__(None, None, None)
         db.close()
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -230,6 +233,7 @@ def process_rss_article_tts_task(title: str, content: str, user_id: int, source_
     tmp_key = hashlib.md5(f"{title}{user_id}".encode()).hexdigest()[:12]
     tmp_path = f"/tmp/rss_{tmp_key}.mp3"
     db = SessionLocal()
+    _uctx = settings_store.user_context(user_id); _uctx.__enter__()  # kullanıcının kendi anahtarları
     try:
         lo, hi = _length_range(length)
         prompt = (
@@ -278,6 +282,7 @@ def process_rss_article_tts_task(title: str, content: str, user_id: int, source_
         print(f"[Worker] RSS TTS HATA: {e}")
         return {"status": "error", "message": str(e)}
     finally:
+        _uctx.__exit__(None, None, None)
         db.close()
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -294,6 +299,7 @@ def process_bulletin_tts_task(news_ids: list, user_id: int, title: str):
     tmp_key = hashlib.md5(f"bulletin{user_id}{title}".encode()).hexdigest()[:12]
     tmp_path = f"/tmp/bulletin_{tmp_key}.mp3"
     db = SessionLocal()
+    _uctx = settings_store.user_context(user_id); _uctx.__enter__()  # kullanıcının kendi anahtarları
     try:
         news_items = (
             db.query(models.News)
@@ -370,6 +376,7 @@ def process_bulletin_tts_task(news_ids: list, user_id: int, title: str):
         print(f"[Bulletin] HATA: {e}")
         return {"status": "error", "message": str(e)}
     finally:
+        _uctx.__exit__(None, None, None)
         db.close()
         if os.path.exists(tmp_path):
             os.remove(tmp_path)

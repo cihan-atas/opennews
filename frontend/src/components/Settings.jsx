@@ -25,7 +25,7 @@ function ApiKeysManager({ isMobile, showToast }) {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/admin/settings`);
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/settings`);
       if (!res.ok) throw new Error();
       const data = await res.json();
       const initial = {};
@@ -58,7 +58,7 @@ function ApiKeysManager({ isMobile, showToast }) {
       else { values[f.key] = v; }
     }));
     try {
-      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/admin/settings`, {
+      const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/settings`, {
         method: 'PUT',
         body: JSON.stringify({ values }),
       });
@@ -91,8 +91,8 @@ function ApiKeysManager({ isMobile, showToast }) {
     <div style={s.section}>
       <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.6rem' }}>🔑 API Anahtarları & Sağlayıcılar</h3>
       <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: 0, marginBottom: '2rem' }}>
-        Yalnızca adminler görür. Her kategoride bir sağlayıcı seç ve <strong style={{ color: '#cbd5e1' }}>sadece onun</strong> anahtarını gir.
-        Kırmızı <span style={{ color: '#fca5a5' }}>ZORUNLU</span> kategoriler podcast üretimi için gereklidir; diğerleri opsiyoneldir.
+        Kendi anahtarlarını gir — podcast'lerin senin anahtarlarınla üretilir. Her kategoride bir sağlayıcı seç ve <strong style={{ color: '#cbd5e1' }}>sadece onun</strong> anahtarını gir.
+        Boş bıraktığın alanlar sistemin varsayılanına düşer. Kırmızı <span style={{ color: '#fca5a5' }}>ZORUNLU</span> kategoriler podcast için gereklidir; diğerleri opsiyoneldir.
       </p>
 
       {groups.map(g => (
@@ -319,8 +319,8 @@ function Settings() {
             </div>
           </div>
 
-          {/* API ANAHTARLARI (yalnızca admin) */}
-          {isAdmin && <ApiKeysManager isMobile={isMobile} showToast={showToast} />}
+          {/* API ANAHTARLARI (herkes kendi anahtarını girer) */}
+          <ApiKeysManager isMobile={isMobile} showToast={showToast} />
 
           {/* İSTATİSTİKLER */}
           {stats && (

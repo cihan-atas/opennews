@@ -1,68 +1,78 @@
-"""Uygulama geneli ayar/anahtar deposu — DB öncelikli, .env yedekli.
+"""Kullanıcıya özel ayar/anahtar deposu (BYOK) — kullanıcı öncelikli, .env yedekli.
 
-Amaç: API anahtarları ve sağlayıcı seçimleri artık .env'e gömülü olmak zorunda
-değil; admin, uygulamanın Ayarlar ekranından girer. Değerler `app_settings`
-tablosunda global tutulur (kullanıcıya özel DEĞİL).
+Amaç: Her kullanıcı kendi API anahtarlarını ve sağlayıcı seçimlerini Ayarlar
+ekranından girer. Podcast üretimi ilgili kullanıcının anahtarlarını kullanır;
+kullanıcı bir anahtar girmemişse sistemin .env değerine düşülür.
 
-Okuma sırası:  DB (app_settings)  →  .env / config.py varsayılanı
+Okuma sırası:  kullanıcının ayarı (user_settings)  →  .env / config.py varsayılanı
 
-Kullanım (servislerde):
-    from services.settings_store import settings          # proxy nesne
-    settings.GROQ_API_KEY   # DB'de varsa onu, yoksa .env değerini döner
+Kullanıcı bağlamı:
+  Servisler (ai/tts/...) hangi kullanıcının anahtarını kullanacağını bilmeli.
+  Worker, bir görevin başında `with user_context(user_id):` bloğu açar; blok
+  içindeki tüm get()/settings.X okumaları o kullanıcının değerlerini çözer.
+  Bağlam yoksa (ör. global özet görevi) doğrudan .env kullanılır.
 
-`settings` proxy'si, config.py'deki gerçek Settings ile aynı alan adlarına yanıt
-verir; bu sayede mevcut servis kodu `from config import settings` yerine bunu
-import ederek değişmeden çalışır.
+    from services.settings_store import settings, user_context
+    with user_context(user_id):
+        summary = ai_service.generate(...)   # settings.GROQ_API_KEY → o kullanıcının
+
+`settings` proxy'si config.py'deki Settings ile aynı alan adlarına yanıt verir;
+mevcut servis kodu `from config import settings` yerine bunu import edip değişmeden
+çalışır.
 """
-import time
-import threading
+import contextvars
 
 from config import settings as _env
 
-# Lazy: DB katmanı import döngüsü yaratmasın diye fonksiyon içinde import edilir.
-_CACHE: dict[str, str] = {}
-_CACHE_TS: float = 0.0
-_TTL_SECONDS = 15          # DB değişiklikleri en geç bu sürede tüm süreçlere yansır
-_LOCK = threading.Lock()
+# Aktif kullanıcının ayar sözlüğü (key→value). Yoksa None → yalnızca .env kullanılır.
+_current_user: contextvars.ContextVar = contextvars.ContextVar("current_user_settings", default=None)
 
 
-def _load(force: bool = False) -> None:
-    global _CACHE, _CACHE_TS
-    with _LOCK:
-        if not force and (time.time() - _CACHE_TS) < _TTL_SECONDS:
-            return
-        try:
-            from database import SessionLocal
-            import models
-            db = SessionLocal()
+def _load_user(db, user_id) -> dict:
+    import models
+    rows = (
+        db.query(models.UserSetting)
+        .filter(models.UserSetting.user_id == user_id)
+        .all()
+    )
+    return {r.key: r.value for r in rows if r.value not in (None, "")}
+
+
+class user_context:
+    """Bloğu boyunca verilen kullanıcının anahtarlarını aktif eder.
+
+    with user_context(user_id):
+        ...   # bu blokta settings.X o kullanıcının değerini döner
+    """
+
+    def __init__(self, user_id):
+        self.user_id = user_id
+        self._token = None
+
+    def __enter__(self):
+        data = {}
+        if self.user_id is not None:
             try:
-                rows = db.query(models.AppSetting).all()
-                _CACHE = {r.key: r.value for r in rows if r.value is not None}
-            finally:
-                db.close()
-        except Exception as e:
-            # Tablo henüz yoksa / DB erişilemezse sessizce .env'e düş.
-            print(f"[settings_store] DB okunamadı, .env kullanılacak: {e}")
-            _CACHE = {}
-        _CACHE_TS = time.time()
+                from database import SessionLocal
+                db = SessionLocal()
+                try:
+                    data = _load_user(db, self.user_id)
+                finally:
+                    db.close()
+            except Exception as e:
+                print(f"[settings_store] kullanıcı ayarları okunamadı: {e}")
+                data = {}
+        self._token = _current_user.set(data)
+        return self
+
+    def __exit__(self, *exc):
+        if self._token is not None:
+            _current_user.reset(self._token)
+        return False
 
 
-def invalidate() -> None:
-    """Cache'i geçersiz kıl (admin bir değeri değiştirince çağrılır)."""
-    global _CACHE_TS
-    _CACHE_TS = 0.0
-
-
-def get(key: str, default=None):
-    """Anahtar için etkin değeri döner: DB → .env → default.
-
-    Dönüş tipi, config.py'deki alanın tipine göre ayarlanır (int/bool cast)."""
-    _load()
-    env_default = getattr(_env, key, default)
-    raw = _CACHE.get(key)
-    if raw is None or raw == "":
-        return env_default
-    # DB string; hedef tip .env'deki değerin tipinden çıkarılır.
+def _cast(raw, env_default):
+    """DB string değerini .env'deki alanın tipine çevirir."""
     if isinstance(env_default, bool):
         return str(raw).strip().lower() in ("1", "true", "yes", "on")
     if isinstance(env_default, int) and not isinstance(env_default, bool):
@@ -73,8 +83,18 @@ def get(key: str, default=None):
     return raw
 
 
+def get(key: str, default=None):
+    """Etkin değer: aktif kullanıcının ayarı → .env → default."""
+    env_default = getattr(_env, key, default)
+    ctx = _current_user.get()
+    raw = ctx.get(key) if ctx else None
+    if raw is None or raw == "":
+        return env_default
+    return _cast(raw, env_default)
+
+
 class _EffectiveSettings:
-    """config.settings ile aynı arayüz; okumaları DB→.env sırasıyla çözer."""
+    """config.settings ile aynı arayüz; okumaları kullanıcı→.env sırasıyla çözer."""
 
     def __getattr__(self, name):
         return get(name)
@@ -84,25 +104,29 @@ class _EffectiveSettings:
 settings = _EffectiveSettings()
 
 
-# ── Yazma (admin) ─────────────────────────────────────────────────────────────
-def set_many(db, values: dict) -> None:
-    """Verilen key→value'ları upsert eder. value == "" ise kaydı siler (.env'e düşer)."""
+# ── Yazma (kullanıcı kendi ayarları) ──────────────────────────────────────────
+def set_many(db, user_id: int, values: dict) -> None:
+    """Kullanıcının key→value ayarlarını upsert eder. value == "" ise kaydı siler
+    (o kullanıcı için .env'e geri düşülür)."""
     import models
     for key, value in values.items():
         if key not in MANAGED_KEYS:
             continue
-        row = db.query(models.AppSetting).filter(models.AppSetting.key == key).first()
+        row = (
+            db.query(models.UserSetting)
+            .filter(models.UserSetting.user_id == user_id, models.UserSetting.key == key)
+            .first()
+        )
         if value is None or value == "":
             if row is not None:
                 db.delete(row)
             continue
         if row is None:
-            row = models.AppSetting(key=key, value=str(value))
+            row = models.UserSetting(user_id=user_id, key=key, value=str(value))
             db.add(row)
         else:
             row.value = str(value)
     db.commit()
-    invalidate()
 
 
 # ── Şema (Ayarlar ekranını hem web hem mobil için tanımlar) ───────────────────
@@ -247,29 +271,33 @@ MANAGED_KEYS = {f["key"] for section in SETTINGS_SCHEMA for f in section["fields
 SECRET_KEYS = {f["key"] for section in SETTINGS_SCHEMA for f in section["fields"] if f.get("secret")}
 
 
-def build_admin_view() -> list:
-    """Şemayı, her alanın mevcut durumuyla (is_set / value) zenginleştirip döner.
+def build_user_view(db, user_id: int) -> list:
+    """Şemayı, ilgili kullanıcının mevcut durumuyla zenginleştirip döner.
 
-    - Gizli alanlar (secret): değer DÖNMEZ, yalnızca is_set gösterilir.
-    - Diğer alanlar: etkin değer (DB→.env) döner ki seçiciler doğru gelsin.
+    - Gizli alanlar (secret): değer DÖNMEZ, yalnızca kullanıcı kendi anahtarını
+      girmiş mi (is_set) bilgisi döner.
+    - Seçiciler/metinler: kullanıcının kendi değeri varsa o, yoksa .env varsayılanı
+      döner (seçiciler doğru gelsin diye).
+    - own: bu alanı kullanıcı kendisi mi ayarlamış (yoksa .env yedeği mi).
     """
-    _load(force=True)
+    user_data = _load_user(db, user_id)
     out = []
     for section in SETTINGS_SCHEMA:
         fields = []
         for f in section["fields"]:
             key = f["key"]
             item = {k: f[k] for k in f}  # kopya
-            effective = get(key, "")
-            has_db = bool(_CACHE.get(key))
+            user_val = user_data.get(key)
+            has_own = user_val not in (None, "")
+            env_default = getattr(_env, key, "")
             if f.get("secret"):
-                item.pop("value", None)
                 item["value"] = ""                       # gizli: değeri hiç gönderme
-                item["is_set"] = bool(effective)
+                item["is_set"] = has_own                 # yalnızca kullanıcının kendi anahtarı
             else:
+                effective = user_val if has_own else env_default
                 item["value"] = "" if effective is None else str(effective)
-                item["is_set"] = effective not in (None, "")
-            item["from_db"] = has_db
+                item["is_set"] = has_own
+            item["own"] = has_own
             fields.append(item)
         out.append({**section, "fields": fields})
     return out

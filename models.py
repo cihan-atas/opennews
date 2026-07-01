@@ -248,14 +248,16 @@ class ReadLaterItem(Base):
     news = relationship("News")
 
 
-class AppSetting(Base):
-    """Uygulama geneli ayar/anahtar deposu (key/value).
+class UserSetting(Base):
+    """Kullanıcıya özel ayar/anahtar deposu (BYOK — bring your own key).
 
-    API anahtarları ve sağlayıcı seçimleri burada global olarak tutulur; admin
-    Ayarlar ekranından düzenler. Servisler değeri DB'den okur, boşsa .env'e düşer
-    (bkz. services/settings_store.py). Kullanıcıya özel DEĞİLDİR."""
-    __tablename__ = "app_settings"
+    Her kullanıcı kendi API anahtarlarını ve sağlayıcı seçimlerini Ayarlar
+    ekranından girer. Podcast üretimi ilgili kullanıcının anahtarlarını kullanır;
+    kullanıcı girmemişse sistemin .env değerine düşülür
+    (bkz. services/settings_store.py)."""
+    __tablename__ = "user_settings"
 
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     key = Column(String, primary_key=True, index=True)
     value = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),

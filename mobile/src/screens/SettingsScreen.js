@@ -30,7 +30,7 @@ function ApiKeysManagerMobile({ colors, styles, showToast }) {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch('/admin/settings');
+      const res = await apiFetch('/settings');
       if (!res.ok) throw new Error();
       const data = await res.json();
       const initial = {}; const secrets = {};
@@ -60,7 +60,7 @@ function ApiKeysManagerMobile({ colors, styles, showToast }) {
       else { values[f.key] = v; }
     }));
     try {
-      const res = await apiFetch('/admin/settings', { method: 'PUT', body: JSON.stringify({ values }) });
+      const res = await apiFetch('/settings', { method: 'PUT', body: JSON.stringify({ values }) });
       if (!res.ok) throw new Error();
       showToast('API ayarları kaydedildi.');
       await load();
@@ -80,8 +80,9 @@ function ApiKeysManagerMobile({ colors, styles, showToast }) {
     <View style={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.borderSoft }]}>
       <Text style={[styles.sectionTitle, { color: colors.text }]}>🔑 API Anahtarları & Sağlayıcılar</Text>
       <Text style={{ color: colors.textDim, fontSize: 13, marginBottom: 18, lineHeight: 19 }}>
-        Her kategoride bir sağlayıcı seç ve sadece onun anahtarını gir. Kırmızı ZORUNLU
-        kategoriler podcast için gereklidir; diğerleri opsiyoneldir.
+        Kendi anahtarlarını gir — podcast'lerin senin anahtarlarınla üretilir. Her kategoride bir
+        sağlayıcı seç ve sadece onun anahtarını gir. Boş bıraktıkların sistem varsayılanına düşer.
+        Kırmızı ZORUNLU kategoriler podcast için gereklidir; diğerleri opsiyoneldir.
       </Text>
 
       {groups.map((g) => (
@@ -274,8 +275,8 @@ export default function SettingsScreen({ navigation }) {
           </Pressable>
         )}
 
-        {/* API Anahtarları — yalnızca admin */}
-        {user?.is_admin && <ApiKeysManagerMobile colors={colors} styles={styles} showToast={showToast} />}
+        {/* API Anahtarları — herkes kendi anahtarını girer */}
+        <ApiKeysManagerMobile colors={colors} styles={styles} showToast={showToast} />
 
         <View style={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.borderSoft }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>🎨 Görünüm</Text>

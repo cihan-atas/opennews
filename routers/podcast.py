@@ -6,6 +6,7 @@ from dependencies import db_dependency, user_dependency
 from utils import upload_to_gcs, get_signed_audio_url, delete_from_gcs
 from worker import process_news_and_tts_task
 import services.stt as stt_service
+from services import settings_store
 
 router = APIRouter(
     prefix="/podcast",    # Tüm yolların başına otomatik /podcast ekler
@@ -147,7 +148,8 @@ def get_podcast_transcript(podcast_id: int, db: db_dependency, current_user: use
         tmp_path = tmp.name
     try:
         urllib.request.urlretrieve(audio_url, tmp_path)
-        transcript = stt_service.transcribe(tmp_path, language="tr")
+        with settings_store.user_context(current_user.id):
+            transcript = stt_service.transcribe(tmp_path, language="tr")
     finally:
         os.unlink(tmp_path)
 
@@ -175,7 +177,8 @@ async def transcribe_audio(
         tmp.write(await file.read())
         tmp_path = tmp.name
     try:
-        transcript = stt_service.transcribe(tmp_path, language="tr")
+        with settings_store.user_context(current_user.id):
+            transcript = stt_service.transcribe(tmp_path, language="tr")
     finally:
         os.unlink(tmp_path)
 

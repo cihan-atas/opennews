@@ -8,19 +8,23 @@ Kullanım alanları:
   - Podcast transkripti (dinle + oku)
   - RSS ses makalelerini metne çevirme
 """
-from config import settings
+from services.settings_store import settings  # kullanıcı→.env çözümlemeli proxy
 
 _GROQ_STT_CLIENT = None
+_GROQ_STT_CLIENT_KEY = None
 
 
 def _get_groq_stt_client():
-    global _GROQ_STT_CLIENT
-    if _GROQ_STT_CLIENT is None:
+    # Anahtar kullanıcıya özel olabildiği için client'ı anahtara göre önbellekle.
+    global _GROQ_STT_CLIENT, _GROQ_STT_CLIENT_KEY
+    api_key = settings.GROQ_API_KEY
+    if _GROQ_STT_CLIENT is None or api_key != _GROQ_STT_CLIENT_KEY:
         from openai import OpenAI
         _GROQ_STT_CLIENT = OpenAI(
-            api_key=settings.GROQ_API_KEY,
+            api_key=api_key,
             base_url="https://api.groq.com/openai/v1",
         )
+        _GROQ_STT_CLIENT_KEY = api_key
     return _GROQ_STT_CLIENT
 
 
