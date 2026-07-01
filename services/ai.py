@@ -265,6 +265,13 @@ def _groq_generate(prompt: str, quality: bool = False, model: str = None, temper
     if model is None:
         model = settings.GROQ_QUALITY_MODEL if quality else settings.GROQ_MODEL
     sys_content = system_prompt if system_prompt else "You are a helpful assistant. Respond directly without any thinking process."
+    # gpt-oss reasoning modelleri: reasoning token'ları completion bütçesinden yenir.
+    # 'low' efor + daha geniş max_tokens → içeriğin boş dönmesini önler, hızlanır.
+    extra = {}
+    max_tokens = 1024
+    if "gpt-oss" in (model or ""):
+        extra["reasoning_effort"] = "low"
+        max_tokens = 4096
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -272,9 +279,10 @@ def _groq_generate(prompt: str, quality: bool = False, model: str = None, temper
             {"role": "user", "content": prompt},
         ],
         temperature=temperature,
-        max_tokens=1024,
+        max_tokens=max_tokens,
+        **extra,
     )
-    return _strip_think(response.choices[0].message.content)
+    return _strip_think(response.choices[0].message.content or "")
 
 
 # ── OpenRouter (~50 istek/gün ücretsiz) ──────────────────────────────────────

@@ -108,6 +108,9 @@ def process_news_and_tts_task(news_id: int, user_id: int, length: str = "medium"
             f"İçerik:\n{news.content}"
         )
         summary = ai_service.generate(tts_prompt, quality=True)
+        if not summary or not summary.strip():
+            print("[Worker] Senaryo boş döndü → kısa özete düşülüyor.")
+            summary = news.summary or (news.content or "")[:1200]
         print(f"[Worker] TTS senaryosu oluşturuldu ({len(summary.split())} kelime).")
 
         # Embedding üret ve kaydet (başlık + içerik) — kapalıysa atla
@@ -248,6 +251,9 @@ def process_rss_article_tts_task(title: str, content: str, user_id: int, source_
             f"Başlık: {title}\n\nİçerik: {content[:3000]}"
         )
         summary = ai_service.generate(prompt, quality=True)
+        if not summary or not summary.strip():
+            print("[Worker] RSS senaryosu boş döndü → ham içeriğe düşülüyor.")
+            summary = (content or "")[:1200]
         segments = ai_service.segment_for_tts(summary)
 
         audio_bytes = tts_service.synthesize_segmented(segments)
@@ -342,6 +348,9 @@ def process_bulletin_tts_task(news_ids: list, user_id: int, title: str):
             f"Haberler:\n{joined}"
         )
         script = ai_service.generate(bulletin_prompt, quality=True)
+        if not script or not script.strip():
+            print("[Bulletin] Senaryo boş döndü → birleştirilmiş özetlere düşülüyor.")
+            script = joined
         print(f"[Bulletin] Senaryo üretildi ({len(script.split())} kelime, {len(news_items)} haber).")
 
         segments = ai_service.segment_for_tts(script)
