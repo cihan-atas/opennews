@@ -5,7 +5,25 @@ import { Platform } from 'react-native';
 
 const ACCESS_KEY = 'access_token';
 const REFRESH_KEY = 'refresh_token';
+const PINNED_KEY = 'pinned_rss_lists';
 const isWeb = Platform.OS === 'web';
+
+// Sabitlenen (pinlenen) RSS liste id'leri — cihazda yerel olarak saklanır.
+export async function getPinnedLists() {
+  try {
+    const raw = isWeb ? localStorage.getItem(PINNED_KEY) : await SecureStore.getItemAsync(PINNED_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setPinnedLists(ids) {
+  const raw = JSON.stringify(Array.isArray(ids) ? ids : []);
+  if (isWeb) { localStorage.setItem(PINNED_KEY, raw); return; }
+  await SecureStore.setItemAsync(PINNED_KEY, raw);
+}
 
 export async function getAccessToken() {
   if (isWeb) return localStorage.getItem(ACCESS_KEY);

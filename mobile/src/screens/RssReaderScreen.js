@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiFetch } from '../api/client';
+import { getPinnedLists, setPinnedLists } from '../api/storage';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useToast, Toast } from '../components/Toast';
 import { radius } from '../theme';
@@ -44,6 +45,7 @@ export default function RssReaderScreen() {
   const [renameValue, setRenameValue] = useState('');
   const [listMenu, setListMenu] = useState(null); // basılı tutunca açılan liste menüsü
   const [menuConfirm, setMenuConfirm] = useState(false); // silme onay adımı
+  const [pinnedIds, setPinnedIds] = useState([]); // sabitlenen liste id'leri (cihazda yerel)
 
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -104,8 +106,24 @@ export default function RssReaderScreen() {
   useEffect(() => {
     fetchLists();
     fetchSaved();
+    getPinnedLists().then(setPinnedIds);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
+
+  const togglePin = (id) => {
+    setPinnedIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [id, ...prev];
+      setPinnedLists(next);
+      return next;
+    });
+  };
+
+  // Sabitlenenler en başta; geri kalanlar orijinal sırada.
+  const orderedLists = useMemo(() => {
+    const pinned = pinnedIds.map((id) => lists.find((l) => l.id === id)).filter(Boolean);
+    const rest = lists.filter((l) => !pinnedIds.includes(l.id));
+    return [...pinned, ...rest];
+  }, [lists, pinnedIds]);
 
   // Aramayı geciktir: her tuşta ağır liste filtresini tetikleyip klavyeyi kapatmamak için
   useEffect(() => {
@@ -474,12 +492,17 @@ export default function RssReaderScreen() {
           <ActivityIndicator color={colors.primaryLight} style={{ marginTop: 12 }} />
         ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }} contentContainerStyle={{ gap: 8 }}>
-            {lists.map((lst) => {
+            {orderedLists.map((lst) => {
               const active = selectedList?.id === lst.id;
+              const pinned = pinnedIds.includes(lst.id);
               return (
                 <Pressable key={lst.id} onPress={() => selectList(lst)} onLongPress={() => handleListLongPress(lst)}
                   style={[styles.listChip, active && styles.listChipActive]}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: feedColor(lst.name) }} />
+                  {pinned ? (
+                    <Text style={{ fontSize: 11 }}>📌</Text>
+                  ) : (
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: feedColor(lst.name) }} />
+                  )}
                   <Text style={{ color: active ? colors.white : colors.textMuted, fontWeight: active ? '700' : '500' }}>{lst.name}</Text>
                   <Text style={styles.listCount}>{lst.feed_count}</Text>
                 </Pressable>
@@ -656,6 +679,12 @@ export default function RssReaderScreen() {
             {!menuConfirm ? (
               <>
                 <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 16 }}>Bu liste için ne yapmak istersin?</Text>
+                <Pressable onPress={() => { togglePin(listMenu.id); closeListMenu(); }}
+                  style={[styles.menuItem, { backgroundColor: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.4)' }]}>
+                  <Text style={{ color: '#f59e0b', fontWeight: '700', fontSize: 15 }}>
+                    {pinnedIds.includes(listMenu?.id) ? '📌  Sabitlemeyi Kaldır' : '📌  Başa Sabitle'}
+                  </Text>
+                </Pressable>
                 <Pressable onPress={() => { setRenameValue(listMenu.name); setRenameTarget({ id: listMenu.id, name: listMenu.name }); closeListMenu(); }}
                   style={[styles.menuItem, { backgroundColor: colors.primarySoft, borderColor: colors.primary }]}>
                   <Text style={{ color: colors.primaryLight, fontWeight: '700', fontSize: 15 }}>✏️  Yeniden Adlandır</Text>
