@@ -18,6 +18,10 @@ const feedColor = (title) => {
   return FEED_COLORS[idx];
 };
 const stripHtml = (html) => (html ? html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() : '');
+// Başlığı çekilemeyen beslemeler için url'den okunur bir etiket üret (örn. venturebeat.com)
+const hostFromUrl = (url) => {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
+};
 
 export default function RssReaderScreen() {
   const insets = useSafeAreaInsets();
@@ -399,14 +403,24 @@ export default function RssReaderScreen() {
     }, 2000);
   };
 
-  const feedTitles = useMemo(() => {
+  // Filtre çipleri haberlerden değil, listenin beslemelerinden üretilir → susan
+  // (geçici olarak haber döndürmeyen) bir besleme bile çipini korur. Eşleştirme
+  // feed_url ile yapılır çünkü başlık boş/çakışan olabilir.
+  const feedFilters = useMemo(() => {
+    const feeds = selectedList?.feeds || [];
+    const titleByUrl = {};
+    for (const a of articles) {
+      if (a.feed_url && a.feed_title && !titleByUrl[a.feed_url]) titleByUrl[a.feed_url] = a.feed_title;
+    }
     const seen = new Set();
-    return articles.map((a) => a.feed_title).filter((t) => t && !seen.has(t) && seen.add(t));
-  }, [articles]);
+    return feeds
+      .filter((f) => f.url && !seen.has(f.url) && seen.add(f.url))
+      .map((f) => ({ url: f.url, label: f.title || titleByUrl[f.url] || hostFromUrl(f.url) }));
+  }, [selectedList, articles]);
 
   const filteredArticles = useMemo(() => {
     let r = articles;
-    if (activeFeedFilter) r = r.filter((a) => a.feed_title === activeFeedFilter);
+    if (activeFeedFilter) r = r.filter((a) => a.feed_url === activeFeedFilter);
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.toLowerCase();
       r = r.filter((a) => a.title?.toLowerCase().includes(q) || a.feed_title?.toLowerCase().includes(q));
@@ -510,15 +524,15 @@ export default function RssReaderScreen() {
             />
           )}
 
-          {!showTrending && !showSaved && feedTitles.length > 1 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 44, marginHorizontal: 16 }} contentContainerStyle={{ gap: 6, paddingVertical: 6 }}>
+          {!showTrending && !showSaved && feedFilters.length > 1 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ height: 44, marginHorizontal: 16, marginTop: 6, marginBottom: 4, flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 6, alignItems: 'center', paddingVertical: 6 }}>
               <Pressable onPress={() => setActiveFeedFilter(null)} style={[styles.filterChip, !activeFeedFilter && { backgroundColor: colors.primarySoft }]}>
                 <Text style={{ color: !activeFeedFilter ? colors.primaryLight : colors.textFaint, fontWeight: '700', fontSize: 12 }}>Tümü</Text>
               </Pressable>
-              {feedTitles.map((t) => (
-                <Pressable key={t} onPress={() => setActiveFeedFilter(activeFeedFilter === t ? null : t)}
-                  style={[styles.filterChip, activeFeedFilter === t && { backgroundColor: `${feedColor(t)}22` }]}>
-                  <Text style={{ color: activeFeedFilter === t ? feedColor(t) : colors.textFaint, fontWeight: '700', fontSize: 12 }}>{t}</Text>
+              {feedFilters.map((f) => (
+                <Pressable key={f.url} onPress={() => setActiveFeedFilter(activeFeedFilter === f.url ? null : f.url)}
+                  style={[styles.filterChip, activeFeedFilter === f.url && { backgroundColor: `${feedColor(f.label)}22` }]}>
+                  <Text style={{ color: activeFeedFilter === f.url ? feedColor(f.label) : colors.textFaint, fontWeight: '700', fontSize: 12 }}>{f.label}</Text>
                 </Pressable>
               ))}
             </ScrollView>
