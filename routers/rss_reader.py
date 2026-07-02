@@ -12,6 +12,13 @@ import services.ai as ai_service
 
 router = APIRouter(prefix="/rss-reader", tags=["RSS Reader"])
 
+# Bazı yayıncılar (Cloudflare vb.) feedparser'ın varsayılan User-Agent'ını
+# bloklar ve boş besleme döndürür. Gerçek bir tarayıcı UA'sı ile istek atıyoruz.
+FEED_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
 
 class ListCreate(BaseModel):
     name: str
@@ -45,7 +52,7 @@ class SaveArticleRequest(BaseModel):
 def _fetch_feed(url: str, feed_title: str) -> list[dict]:
     """Fetch and parse a single RSS feed, return article dicts."""
     try:
-        parsed = feedparser.parse(url)
+        parsed = feedparser.parse(url, agent=FEED_USER_AGENT)
         articles = []
         for entry in parsed.entries[:100]:
             pub = entry.get("published_parsed") or entry.get("updated_parsed")
@@ -145,7 +152,7 @@ def add_feed(list_id: int, body: FeedAdd, db: db_dependency, current_user: user_
     # Auto-detect feed title
     feed_title = None
     try:
-        parsed = feedparser.parse(url)
+        parsed = feedparser.parse(url, agent=FEED_USER_AGENT)
         feed_title = parsed.feed.get("title") or None
     except Exception:
         pass
