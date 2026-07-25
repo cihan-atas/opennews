@@ -278,11 +278,14 @@ class RssNotificationRule(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    list_id = Column(Integer, ForeignKey("user_rss_lists.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Gündem kuralında (scope="trending") liste yoktur → NULL.
+    list_id = Column(Integer, ForeignKey("user_rss_lists.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String, nullable=False)
     enabled = Column(Boolean, nullable=False, default=True)
 
-    # "all" → listedeki tüm beslemeler | "selected" → rule_feeds tablosundakiler
+    # "all"      → listedeki tüm beslemeler
+    # "selected" → rule_feeds tablosundakiler
+    # "trending" → Gündem: haber gündemi + tüm RSS beslemeleri (liste bağımsız)
     scope = Column(String, nullable=False, default="all")
     # "immediate" → IMMEDIATE_INTERVAL_MINUTES ile yoklanır | "interval" → interval_minutes
     mode = Column(String, nullable=False, default="immediate")

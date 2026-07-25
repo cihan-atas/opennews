@@ -451,13 +451,96 @@ MAX_INDIVIDUAL_PER_RUN = 5           # bozuk besleme telefonu boğmasın
 SEEN_RETENTION_DAYS = 30
 
 
+TRENDING_NEWS_LIMIT = 10
+TRENDING_HOURS = 24
+# Gündem "en güncel olanlar" demek; tüm beslemelerin tamamı değil. Sınırsız
+# bırakınca ilk baseline 3500+ makale yazıyor ve her tur ağırlaşıyordu.
+TRENDING_MAX_ARTICLES = 40
+
+
 def _rule_feeds(rule) -> list:
-    """Kuralın kapsadığı beslemeler: scope='all' → listenin tümü,
-    scope='selected' → yalnızca seçilenler."""
+    """Kuralın kapsadığı beslemeler.
+
+    all      → listenin tümü
+    selected → yalnızca seçilenler
+    trending → kullanıcının TÜM listelerindeki benzersiz beslemeler (Gündem)
+    """
+    if rule.scope == "trending":
+        return []          # Gündem beslemeleri _collect_trending'de toplanır
     if rule.scope == "selected":
         selected = {rf.feed_id for rf in rule.feeds}
         return [f for f in rule.rss_list.feeds if f.id in selected]
     return list(rule.rss_list.feeds)
+
+
+def _news_trending_articles(db, user_id: int) -> list:
+    """Haber gündemi (/news/trending mantığı) → makale sözlükleri.
+
+    Son 24 saatte en çok tıklanan kategorilerden haberler; tıklama verisi yoksa
+    en yeni haberler. RSS makaleleriyle aynı alan adlarına çevrilir ki
+    _store_new_articles ve bildirim tıklama akışı değişmeden çalışsın.
+    """
+    from sqlalchemy import func
+
+    since = datetime.now(_tz.utc) - timedelta(hours=TRENDING_HOURS)
+    hot = (
+        db.query(models.UserClick.category_id)
+        .filter(models.UserClick.last_click_at >= since)
+        .group_by(models.UserClick.category_id)
+        .order_by(func.sum(models.UserClick.click_count).desc())
+        .limit(5)
+        .all()
+    )
+    hot_ids = [r.category_id for r in hot]
+
+    q = db.query(models.News)
+    if hot_ids:
+        q = q.filter(models.News.category_id.in_(hot_ids))
+    rows = q.order_by(models.News.published_at.desc().nulls_last()).limit(TRENDING_NEWS_LIMIT).all()
+
+    return [
+        {
+            "title": n.title,
+            "link": n.source_url,          # benzersiz → tekilleştirme anahtarı
+            "summary": n.summary,
+            "feed_title": "Haber Gündemi",
+            "feed_url": None,
+            "published": n.published_at.isoformat() if n.published_at else None,
+        }
+        for n in rows
+    ]
+
+
+def _collect_trending(db, rule) -> list:
+    """Gündem kuralının kaynakları: haber gündemi + tüm RSS beslemeleri."""
+    articles = list(_news_trending_articles(db, rule.user_id))
+
+    # Kullanıcının tüm listelerindeki benzersiz beslemeler (aynı url birden
+    # fazla listede olabilir) — routers/rss_reader.get_rss_trending ile aynı mantık.
+    lists = db.query(models.UserRssList).filter(
+        models.UserRssList.user_id == rule.user_id).all()
+    feeds = {}
+    for lst in lists:
+        for f in lst.feeds:
+            feeds.setdefault(f.url, f.title)
+
+    rss_articles = []
+    for url, title in feeds.items():
+        rss_articles.extend(rss_service.fetch_feed(url, title))
+
+    # Link bazında tekilleştir (aynı yazı birden çok listede olabilir),
+    # en yeniden eskiye sırala ve gündem sayısıyla sınırla.
+    seen_links = set()
+    unique = []
+    for a in rss_articles:
+        key = a.get("link") or a.get("title")
+        if key and key not in seen_links:
+            seen_links.add(key)
+            unique.append(a)
+    unique.sort(key=lambda a: a.get("published") or "", reverse=True)
+
+    articles.extend(unique[:TRENDING_MAX_ARTICLES])
+    return articles
 
 
 def _parse_hhmm(value: str, fallback: str) -> tuple:
@@ -515,7 +598,8 @@ def _send_rule_notification(db, rule, new_rows: list, batch_stamp) -> None:
         print(f"[Bildirim] Kural {rule.id}: kayıtlı cihaz yok, atlanıyor.")
         return
 
-    list_name = rule.rss_list.name
+    # Gündem kuralında liste yok (list_id NULL) → rss_list None olur.
+    list_name = rule.rss_list.name if rule.rss_list else "Gündem"
     # Kullanıcı birden fazla kural kurabildiği için hangisinin tetiklendiği
     # bildirimden anlaşılmalı — başlıkta kuralın kendi adı geçiyor.
     rule_name = rule.name or list_name
@@ -551,8 +635,31 @@ def _send_rule_notification(db, rule, new_rows: list, batch_stamp) -> None:
         print(f"[Bildirim] Kural {rule.id}: {count} haber tek özette gönderildi.")
 
 
-def _collect_articles(rule) -> list:
-    """Kuralın beslemelerinden makaleleri toplar (Redis cache'li)."""
+def _send_no_news_notification(db, rule) -> None:
+    """Aralıklı kuralda yeni haber çıkmadıysa 'şu an yok' bildirimi.
+
+    Kullanıcı aralıklı bir kural kurduğunda sessizliği arıza sanıyordu; aralığın
+    sonunda kuralın çalıştığını görmek istiyor. "Hemen" modunda gönderilmez —
+    orada bildirim yalnızca yeni haber geldiğinde anlamlı.
+    """
+    tokens = [t.token for t in db.query(models.PushToken).filter(
+        models.PushToken.user_id == rule.user_id).all()]
+    if not tokens:
+        return
+
+    push_service.send(
+        tokens,
+        title=f"📡 {rule.name or (rule.rss_list.name if rule.rss_list else 'Gündem')}"[:100],
+        body="Şu an yeni haber yok.",
+        data={"type": "rss_none", "list_id": rule.list_id, "rule_id": rule.id},
+    )
+    print(f"[Bildirim] Kural {rule.id}: yeni haber yok bildirimi gönderildi.")
+
+
+def _collect_articles(rule, db=None) -> list:
+    """Kuralın kaynaklarından makaleleri toplar (Redis cache'li)."""
+    if rule.scope == "trending":
+        return _collect_trending(db, rule)
     articles = []
     for feed in _rule_feeds(rule):
         articles.extend(rss_service.fetch_feed(feed.url, feed.title))
@@ -631,7 +738,7 @@ def baseline_rss_rule_task(rule_id: int):
         if not rule:
             return {"status": "error", "message": f"Kural {rule_id} bulunamadı"}
 
-        articles = _collect_articles(rule)
+        articles = _collect_articles(rule, db)
         # mark_notified=True: bunlar kural kurulmadan önce zaten yayınlanmış
         # makaleler. NULL bıraksaydık ilk turda hepsi "bekleyen" sayılır ve
         # kullanıcı yüzlerce eski haberin bildirimini yerdi.
@@ -668,7 +775,7 @@ def evaluate_rss_notifications_task():
 
             checked += 1
             try:
-                articles = _collect_articles(rule)
+                articles = _collect_articles(rule, db)
                 quiet = _in_quiet_hours(rule.user_id)
                 # Sessiz saatte makaleler kaydedilir ama bildirilmez; notified_at
                 # NULL kalır, sessiz saat bitince aşağıdaki sorgu onları toplar.
@@ -689,6 +796,10 @@ def evaluate_rss_notifications_task():
                         _send_rule_notification(db, rule, pending, stamp)
                         for row in pending:
                             row.notified_at = stamp
+                        notified += 1
+                    elif rule.mode == "interval":
+                        # Aralıklı kuralda her turda haber ver; boş tur da bilgidir.
+                        _send_no_news_notification(db, rule)
                         notified += 1
 
                 rule.last_checked_at = datetime.now(_tz.utc)

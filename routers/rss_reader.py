@@ -412,6 +412,19 @@ def _own_rule_or_404(db, rule_id: int, user_id: int) -> models.RssNotificationRu
     return rule
 
 
+def _reject_if_trending(rule) -> None:
+    """Gündem kuralı liste kurallarıyla aynı uçlardan düzenlenemez.
+
+    Bu uçlar scope'u all/selected'a zorlar; Gündem kuralı oradan geçerse
+    scope'u bozulur ve kural sessizce çalışmaz hale gelir.
+    """
+    if rule.scope == "trending":
+        raise HTTPException(
+            status_code=400,
+            detail="Gündem bildirimi Ayarlar'dan yönetilir (/rss-reader/trending-notification).",
+        )
+
+
 def _resolve_feed_ids(lst: models.UserRssList, feed_ids: Optional[list[int]]) -> list[int]:
     """Seçilen beslemelerin gerçekten bu listeye ait olduğunu doğrular.
 
@@ -508,6 +521,7 @@ def create_notification_rule(list_id: int, body: NotificationRuleCreate,
 def update_notification_rule(rule_id: int, body: NotificationRuleUpdate,
                              db: db_dependency, current_user: user_dependency):
     rule = _own_rule_or_404(db, rule_id, current_user.id)
+    _reject_if_trending(rule)
 
     scope = body.scope if body.scope is not None else rule.scope
     mode = body.mode if body.mode is not None else rule.mode
@@ -545,9 +559,80 @@ def update_notification_rule(rule_id: int, body: NotificationRuleUpdate,
 @router.delete("/notification-rules/{rule_id}", status_code=status.HTTP_200_OK)
 def delete_notification_rule(rule_id: int, db: db_dependency, current_user: user_dependency):
     rule = _own_rule_or_404(db, rule_id, current_user.id)
+    _reject_if_trending(rule)
     db.delete(rule)          # rule_feeds ve seen_articles CASCADE ile gider
     db.commit()
     return {"message": "Bildirim kuralı silindi."}
+
+
+class TrendingRuleUpsert(BaseModel):
+    """Gündem bildirimi — kullanıcı başına tek kural, Ayarlar ekranından yönetilir."""
+    enabled: bool = True
+    mode: str = "interval"                       # immediate | interval
+    interval_minutes: Optional[int] = 180
+    grouping: str = "digest"                     # digest | individual
+
+
+TRENDING_RULE_NAME = "Gündem"
+
+
+def _get_trending_rule(db, user_id: int):
+    return db.query(models.RssNotificationRule).filter(
+        models.RssNotificationRule.user_id == user_id,
+        models.RssNotificationRule.scope == "trending",
+    ).first()
+
+
+@router.get("/trending-notification")
+def get_trending_notification(db: db_dependency, current_user: user_dependency):
+    """Gündem bildirim ayarı. Hiç kurulmadıysa kapalı varsayılan döner."""
+    rule = _get_trending_rule(db, current_user.id)
+    if not rule:
+        return {
+            "configured": False, "enabled": False,
+            "mode": "interval", "interval_minutes": 180,
+            "effective_interval_minutes": 180,
+            "grouping": "digest", "ready": False,
+        }
+    data = _serialize_rule(rule)
+    data["configured"] = True
+    return data
+
+
+@router.put("/trending-notification")
+def upsert_trending_notification(body: TrendingRuleUpsert,
+                                 db: db_dependency, current_user: user_dependency):
+    """Gündem bildirimini oluşturur veya günceller (kullanıcı başına tek kayıt)."""
+    _validate_rule("all", body.mode, body.grouping, body.interval_minutes, None)
+
+    rule = _get_trending_rule(db, current_user.id)
+    created = rule is None
+
+    if created:
+        rule = models.RssNotificationRule(
+            user_id=current_user.id,
+            list_id=None,               # Gündem bir listeye bağlı değil
+            name=TRENDING_RULE_NAME,
+            scope="trending",
+            last_checked_at=None,       # baseline bitene kadar değerlendirilmez
+        )
+        db.add(rule)
+
+    rule.enabled = body.enabled
+    rule.mode = body.mode
+    rule.interval_minutes = body.interval_minutes if body.mode == "interval" else None
+    rule.grouping = body.grouping
+    db.commit()
+    db.refresh(rule)
+
+    if created:
+        # Mevcut gündem "görüldü" işaretlenir, bildirim gitmez.
+        baseline_rss_rule_task.delay(rule.id)
+        db.refresh(rule)
+
+    data = _serialize_rule(rule)
+    data["configured"] = True
+    return data
 
 
 def _parse_stamp(value: str):
