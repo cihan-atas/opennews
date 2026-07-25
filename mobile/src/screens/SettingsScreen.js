@@ -17,9 +17,9 @@ function fieldVisible(field, draft) {
   return (cond.in || []).includes(draft[cond.field]);
 }
 
-// Admin'e özel: API anahtarları & sağlayıcılar (kategorilere ayrılmış).
+// Her kullanıcıya açık (BYOK): API anahtarları & sağlayıcılar (kategorilere ayrılmış).
 // MODÜL DÜZEYİNDE tanımlı → kimliği sabit, TextInput'lar her tuşta remount olmaz
-// (klavye kapanma hatasını önler). Şema backend'den (GET /admin/settings) gelir.
+// (klavye kapanma hatasını önler). Şema backend'den (GET /settings) gelir.
 function ApiKeysManagerMobile({ colors, styles, showToast }) {
   const [groups, setGroups] = useState([]);
   const [draft, setDraft] = useState({});

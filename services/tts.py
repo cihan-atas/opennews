@@ -6,19 +6,27 @@ Sağlayıcılar:
   - polly: Amazon Polly (AWS neural sesleri)
 
 Çift ses modu (synthesize_segmented):
-  Türkçe segmentler → tr-TR-EmelNeural / Burcu (Polly)
+  Türkçe segmentler → EDGE_TTS_VOICE / POLLY_VOICE_TR (Ayarlar'dan seçilir)
   İngilizce segmentler → en-US-AriaNeural / Joanna (Polly)
 """
 from services.settings_store import settings  # DB→.env çözümlemeli proxy
 
-_EDGE_TR_VOICE = "tr-TR-EmelNeural"
+_EDGE_TR_VOICE = "tr-TR-EmelNeural"   # kullanıcı ayar girmemişse varsayılan
 _EDGE_EN_VOICE = "en-US-AriaNeural"
+
+
+def _edge_tr_voice() -> str:
+    """Kullanıcının EDGE_TTS_VOICE ayarı → .env → varsayılan.
+
+    Çağrı anında okunur; worker'ın user_context'i o kullanıcının sesini çözsün.
+    """
+    return settings.EDGE_TTS_VOICE or _EDGE_TR_VOICE
 
 
 def synthesize(text: str) -> bytes:
     """Tek ses, düz metin. Sadece Türkçe ses kullanır."""
     if settings.TTS_PROVIDER == "edge":
-        return _edge_synthesize(text, _EDGE_TR_VOICE)
+        return _edge_synthesize(text, _edge_tr_voice())
     elif settings.TTS_PROVIDER == "polly":
         return _polly_synthesize(text, settings.POLLY_VOICE_TR)
     return _google_synthesize(text)
@@ -41,6 +49,8 @@ def synthesize_segmented(segments: list) -> bytes:
 
     import asyncio
 
+    tr_voice = _edge_tr_voice()
+
     async def _run() -> bytes:
         import edge_tts
         chunks = bytearray()
@@ -48,7 +58,7 @@ def synthesize_segmented(segments: list) -> bytes:
             text = seg.get("text", "").strip()
             if not text:
                 continue
-            voice = _EDGE_EN_VOICE if seg.get("lang") == "en" else _EDGE_TR_VOICE
+            voice = _EDGE_EN_VOICE if seg.get("lang") == "en" else tr_voice
             communicate = edge_tts.Communicate(text, voice)
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
