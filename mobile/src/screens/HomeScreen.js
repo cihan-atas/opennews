@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View, Text, TextInput, Pressable, FlatList, ScrollView, StyleSheet,
-  ActivityIndicator, RefreshControl, Modal, Switch,
+  ActivityIndicator, RefreshControl, Modal, Switch, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -40,6 +40,7 @@ export default function HomeScreen() {
   const [catRules, setCatRules] = useState([]);
   const [catRuleForm, setCatRuleForm] = useState(null);
   const [catRuleSaving, setCatRuleSaving] = useState(false);
+  const [ruleCatSearch, setRuleCatSearch] = useState('');   // kural eklerken kategori arama
   const [searchHistory, setSearchHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState(null); // null=ilgi, 0=tümü, id=kategori
@@ -520,6 +521,8 @@ export default function HomeScreen() {
 
       {/* Akış bildirim kuralları — kategori başına */}
       <Modal visible={showCatRules} transparent animationType="slide" onRequestClose={() => setShowCatRules(false)}>
+        {/* Klavye açılınca kart yukarı kayar; yoksa arama alanı klavyenin altında kalıyordu */}
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.sheetOverlay}>
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
             <View style={styles.sheetHeader}>
@@ -573,9 +576,38 @@ export default function HomeScreen() {
                   ))}
 
                   <Text style={[styles.ruleLabel, { marginTop: 18 }]}>Kategori seç ve kural ekle</Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                    {interests
+                  <View style={styles.ruleSearchRow}>
+                    <Text style={{ color: colors.textFaint, fontSize: 14 }}>🔍</Text>
+                    <TextInput
+                      style={{ flex: 1, color: colors.text, paddingVertical: 8 }}
+                      placeholder="Kategori ara (ör. bilim)"
+                      placeholderTextColor={colors.textFaint}
+                      value={ruleCatSearch}
+                      onChangeText={setRuleCatSearch}
+                      autoCapitalize="none"
+                    />
+                    {ruleCatSearch.length > 0 && (
+                      <Pressable onPress={() => setRuleCatSearch('')} hitSlop={8}>
+                        <Text style={{ color: colors.textFaint }}>✕</Text>
+                      </Pressable>
+                    )}
+                  </View>
+
+                  {(() => {
+                    const q = ruleCatSearch.trim().toLowerCase();
+                    const list = interests
                       .filter((c) => !catRules.some((r) => r.category_id === c.id))
+                      .filter((c) => !q || (c.name || '').toLowerCase().includes(q));
+                    if (list.length === 0) {
+                      return (
+                        <Text style={{ color: colors.textFaint, fontSize: 12, marginTop: 8 }}>
+                          {q ? 'Eşleşen kategori yok.' : 'Tüm kategoriler için kural kurulmuş.'}
+                        </Text>
+                      );
+                    }
+                    return (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {list
                       .map((c) => (
                         <Pressable key={c.id}
                           onPress={() => setCatRuleForm({
@@ -587,6 +619,8 @@ export default function HomeScreen() {
                         </Pressable>
                       ))}
                   </View>
+                    );
+                  })()}
                 </>
               ) : (
                 <>
@@ -631,6 +665,7 @@ export default function HomeScreen() {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {suggestion && (
@@ -702,6 +737,11 @@ const makeStyles = (colors) => StyleSheet.create({
     paddingVertical: 7, paddingHorizontal: 12,
   },
   ruleChipOn: { backgroundColor: colors.primarySoft, borderColor: colors.primaryLight },
+  ruleSearchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10,
+    backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.sm, paddingHorizontal: 12,
+  },
   trendLabel: { color: colors.warning, fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 },
   trendCard: { width: 240, backgroundColor: 'rgba(245,158,11,0.05)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)', borderRadius: radius.md, padding: 16 },
   trendCat: { color: colors.warning, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },

@@ -696,27 +696,6 @@ def _send_rule_notification(db, rule, new_rows: list, batch_stamp) -> None:
         print(f"[Bildirim] Kural {rule.id}: {count} haber tek özette gönderildi.")
 
 
-def _send_no_news_notification(db, rule) -> None:
-    """Aralıklı kuralda yeni haber çıkmadıysa 'şu an yok' bildirimi.
-
-    Kullanıcı aralıklı bir kural kurduğunda sessizliği arıza sanıyordu; aralığın
-    sonunda kuralın çalıştığını görmek istiyor. "Hemen" modunda gönderilmez —
-    orada bildirim yalnızca yeni haber geldiğinde anlamlı.
-    """
-    tokens = [t.token for t in db.query(models.PushToken).filter(
-        models.PushToken.user_id == rule.user_id).all()]
-    if not tokens:
-        return
-
-    push_service.send(
-        tokens,
-        title=f"📡 {rule.name or (rule.rss_list.name if rule.rss_list else 'Gündem')}"[:100],
-        body="Şu an yeni haber yok.",
-        data={"type": "rss_none", "list_id": rule.list_id, "rule_id": rule.id},
-    )
-    print(f"[Bildirim] Kural {rule.id}: yeni haber yok bildirimi gönderildi.")
-
-
 def _news_category_articles(db, category_id: int) -> list:
     """Akış kategorisindeki en yeni haberler → makale sözlükleri.
 
@@ -895,10 +874,9 @@ def evaluate_rss_notifications_task():
                         for row in pending:
                             row.notified_at = stamp
                         notified += 1
-                    elif rule.mode == "interval":
-                        # Aralıklı kuralda her turda haber ver; boş tur da bilgidir.
-                        _send_no_news_notification(db, rule)
-                        notified += 1
+                    # Yeni haber yoksa hiçbir şey gönderilmiyor — her iki modda da
+                    # sessiz. (Bir ara aralıklı modda "yeni haber yok" bildirimi
+                    # gönderiliyordu; gereksiz gürültü olduğu için kaldırıldı.)
 
                 rule.last_checked_at = datetime.now(_tz.utc)
                 db.commit()
