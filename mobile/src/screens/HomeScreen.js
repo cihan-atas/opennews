@@ -34,6 +34,10 @@ export default function HomeScreen() {
   const [searchHistory, setSearchHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState(null); // null=ilgi, 0=tümü, id=kategori
+  // Çoklu kategori seçimi (basılı tutma ile). Boşsa activeCategoryId geçerlidir;
+  // doluysa yalnızca bu kategoriler getirilir. "İlgi Alanlarım" ve "Tümü" bu
+  // listeye giremez — onlar kapsayıcı seçenekler, birleştirilmeleri anlamsız.
+  const [multiCategoryIds, setMultiCategoryIds] = useState([]);
   const [interests, setInterests] = useState([]);
   const [trending, setTrending] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,12 +50,13 @@ export default function HomeScreen() {
   const refreshPoll = useRef(null);
   const bulletinPoll = useRef(null);
 
-  const fetchNews = useCallback(async (query, p, catId) => {
+  const fetchNews = useCallback(async (query, p, catId, multiIds = []) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(p), size: String(PAGE_SIZE) });
       if (query) params.set('search', query);
-      if (catId === 0) { /* tümü */ }
+      if (multiIds.length) params.set('category_ids', multiIds.join(','));
+      else if (catId === 0) { /* tümü */ }
       else if (catId) params.set('category_id', String(catId));
       else params.set('interests_only', 'true');
 
@@ -79,10 +84,10 @@ export default function HomeScreen() {
   }, []);
 
   useEffect(() => {
-    fetchNews(search, page, activeCategoryId);
+    fetchNews(search, page, activeCategoryId, multiCategoryIds);
     // search'i değişimde tetiklemiyoruz; sadece submit'te (handleSearch) çalışır.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, activeCategoryId]);
+  }, [page, activeCategoryId, multiCategoryIds]);
 
   useEffect(() => () => {
     if (refreshPoll.current) clearInterval(refreshPoll.current);
@@ -118,7 +123,7 @@ export default function HomeScreen() {
     pushSearchHistory(search);
     setShowHistory(false);
     setPage(1);
-    fetchNews(search, 1, activeCategoryId);
+    fetchNews(search, 1, activeCategoryId, multiCategoryIds);
   };
 
   const runSearchFromHistory = (term) => {
@@ -126,10 +131,31 @@ export default function HomeScreen() {
     pushSearchHistory(term);
     setShowHistory(false);
     setPage(1);
-    fetchNews(term, 1, activeCategoryId);
+    fetchNews(term, 1, activeCategoryId, multiCategoryIds);
   };
 
-  const handleCategory = (catId) => { setActiveCategoryId(catId); setPage(1); };
+  /**
+   * Kategori çipi.
+   *  dokunma      → yalnızca o kategori (çoklu seçim varsa temizlenir)
+   *  basılı tutma → seçime ekler / çıkarır
+   * "İlgi Alanlarım" (null) ve "Tümü" (0) basılı tutmaya kapalı.
+   */
+  const handleCategory = (catId) => {
+    setMultiCategoryIds([]);
+    setActiveCategoryId(catId);
+    setPage(1);
+  };
+
+  const handleCategoryLong = (catId) => {
+    if (catId === null || catId === 0) return;      // kapsayıcı seçenekler
+    setMultiCategoryIds((prev) => {
+      const next = prev.includes(catId) ? prev.filter((c) => c !== catId) : [...prev, catId];
+      // Tek kategori kaldıysa normal tekil seçime düş; hiç kalmadıysa ilgi alanlarına.
+      if (next.length === 0) setActiveCategoryId(null);
+      return next;
+    });
+    setPage(1);
+  };
 
   const handleBulletin = async () => {
     if (bulletinLoading) return;
@@ -191,7 +217,7 @@ export default function HomeScreen() {
             clearInterval(refreshPoll.current);
             refreshPoll.current = null;
             setRefreshing(false);
-            fetchNews(search, 1, activeCategoryId);
+            fetchNews(search, 1, activeCategoryId, multiCategoryIds);
             setPage(1);
             showToast('✅ Gündem güncellendi!');
           }
@@ -330,9 +356,14 @@ export default function HomeScreen() {
             return (cat.name || '').toLowerCase().includes(q);
           })
           .map((cat) => {
-          const active = activeCategoryId === cat.id;
+          const active = multiCategoryIds.length
+            ? multiCategoryIds.includes(cat.id)
+            : activeCategoryId === cat.id;
           return (
-            <Pressable key={cat.id ?? 'interests'} onPress={() => handleCategory(cat.id)}
+            <Pressable key={cat.id ?? 'interests'}
+              onPress={() => handleCategory(cat.id)}
+              onLongPress={() => handleCategoryLong(cat.id)}
+              delayLongPress={280}
               style={[styles.chip, active && styles.chipActive]}>
               <Text style={{ color: active ? colors.white : colors.textMuted, fontWeight: '600' }}>{cat.name}</Text>
             </Pressable>

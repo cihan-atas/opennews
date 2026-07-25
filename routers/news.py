@@ -46,6 +46,7 @@ def get_news(
     size: int = 10,
     search: Optional[str] = None,
     category_id: Optional[int] = None,
+    category_ids: Optional[str] = None,     # çoklu seçim: "3,7,12"
     interests_only: bool = False,
 ):
     query = db.query(models.News)
@@ -55,10 +56,23 @@ def get_news(
         interest_ids = [cat.id for cat in current_user.interests]
         query = query.filter(models.News.category_id.in_(interest_ids))
 
-    # Kategori filtresi (hiyerarşik fallback: ana→alt, beslemesiz alt→üst)
-    if category_id:
-        cat_ids = _resolve_category_ids(db, category_id)
-        query = query.filter(models.News.category_id.in_(cat_ids))
+    # Kategori filtresi (hiyerarşik fallback: ana→alt, beslemesiz alt→üst).
+    # category_ids çoklu seçim içindir; her kategorinin alt ağacı ayrı çözülüp
+    # birleştirilir, böylece tekil seçimle aynı davranış korunur.
+    selected_ids = []
+    if category_ids:
+        for part in category_ids.split(","):
+            part = part.strip()
+            if part.isdigit():
+                selected_ids.append(int(part))
+    elif category_id:
+        selected_ids = [category_id]
+
+    if selected_ids:
+        cat_ids = set()
+        for cid in selected_ids:
+            cat_ids.update(_resolve_category_ids(db, cid))
+        query = query.filter(models.News.category_id.in_(list(cat_ids)))
 
     if search and not embeddings_enabled():
         # Embedding kapalı → doğrudan anahtar kelime (LIKE) araması

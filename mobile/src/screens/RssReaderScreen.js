@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View, Text, TextInput, Pressable, FlatList, ScrollView, Modal, StyleSheet,
-  ActivityIndicator, Linking, Animated, PanResponder, KeyboardAvoidingView, Platform,
+  ActivityIndicator, Linking, Animated, PanResponder, KeyboardAvoidingView, Platform, Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiFetch } from '../api/client';
@@ -50,7 +50,9 @@ export default function RssReaderScreen({ route }) {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [activeFeedFilter, setActiveFeedFilter] = useState(null);
+  // Çoklu besleme filtresi: boş dizi = tümü. Dokunma tek seçer, basılı tutma
+  // seçime ekler/çıkarır (birden fazla besleme birlikte görüntülenebilsin).
+  const [activeFeedFilters, setActiveFeedFilters] = useState([]);
 
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [podcastStatus, setPodcastStatus] = useState(null); // null | loading | processing | ready
@@ -190,7 +192,7 @@ export default function RssReaderScreen({ route }) {
           setShowSaved(false);
           setShowTrending(false);
           setSearchTerm('');
-          setActiveFeedFilter(null);
+          setActiveFeedFilters([]);
           setArticles(data.articles || []);
           setNotifBatch({ count: data.count, name: data.rule_name });
         } catch (_) {
@@ -298,7 +300,7 @@ export default function RssReaderScreen({ route }) {
 
   const loadArticles = async (listId) => {
     setLoadingArticles(true);
-    setArticles([]); setSearchTerm(''); setDebouncedSearch(''); setActiveFeedFilter(null);
+    setArticles([]); setSearchTerm(''); setDebouncedSearch(''); setActiveFeedFilters([]);
     setNotifBatch(null);   // normal listeye dönüldü, bildirim şeridi kalkar
     try {
       const res = await apiFetch(`/rss-reader/lists/${listId}/articles`);
@@ -618,15 +620,30 @@ export default function RssReaderScreen({ route }) {
       .map((f) => ({ url: f.url, label: f.title || titleByUrl[f.url] || hostFromUrl(f.url) }));
   }, [selectedList, articles]);
 
+  /**
+   * Besleme çipi seçimi.
+   *  dokunma      → yalnızca o besleme (zaten tek seçiliyse tümüne döner)
+   *  basılı tutma → seçime ekler / çıkarır (çoklu seçim)
+   */
+  const toggleFeedFilter = (url, additive) => {
+    setActiveFeedFilters((prev) => {
+      if (additive) {
+        return prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url];
+      }
+      const onlyThis = prev.length === 1 && prev[0] === url;
+      return onlyThis ? [] : [url];
+    });
+  };
+
   const filteredArticles = useMemo(() => {
     let r = articles;
-    if (activeFeedFilter) r = r.filter((a) => a.feed_url === activeFeedFilter);
+    if (activeFeedFilters.length) r = r.filter((a) => activeFeedFilters.includes(a.feed_url));
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.toLowerCase();
       r = r.filter((a) => a.title?.toLowerCase().includes(q) || a.feed_title?.toLowerCase().includes(q));
     }
     return r;
-  }, [articles, activeFeedFilter, debouncedSearch]);
+  }, [articles, activeFeedFilters, debouncedSearch]);
 
   const trendingFeedTitles = useMemo(() => {
     const seen = new Set();
@@ -750,13 +767,16 @@ export default function RssReaderScreen({ route }) {
 
           {!showTrending && !showSaved && feedFilters.length > 1 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ height: 44, marginHorizontal: 16, marginTop: 6, marginBottom: 4, flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 6, alignItems: 'center', paddingVertical: 6 }}>
-              <Pressable onPress={() => setActiveFeedFilter(null)} style={[styles.filterChip, !activeFeedFilter && { backgroundColor: colors.primarySoft }]}>
-                <Text style={{ color: !activeFeedFilter ? colors.primaryLight : colors.textFaint, fontWeight: '700', fontSize: 12 }}>Tümü</Text>
+              <Pressable onPress={() => setActiveFeedFilters([])} style={[styles.filterChip, activeFeedFilters.length === 0 && { backgroundColor: colors.primarySoft }]}>
+                <Text style={{ color: activeFeedFilters.length === 0 ? colors.primaryLight : colors.textFaint, fontWeight: '700', fontSize: 12 }}>Tümü</Text>
               </Pressable>
               {feedFilters.map((f) => (
-                <Pressable key={f.url} onPress={() => setActiveFeedFilter(activeFeedFilter === f.url ? null : f.url)}
-                  style={[styles.filterChip, activeFeedFilter === f.url && { backgroundColor: `${feedColor(f.label)}22` }]}>
-                  <Text style={{ color: activeFeedFilter === f.url ? feedColor(f.label) : colors.textFaint, fontWeight: '700', fontSize: 12 }}>{f.label}</Text>
+                <Pressable key={f.url}
+                  onPress={() => toggleFeedFilter(f.url, false)}
+                  onLongPress={() => toggleFeedFilter(f.url, true)}
+                  delayLongPress={280}
+                  style={[styles.filterChip, activeFeedFilters.includes(f.url) && { backgroundColor: `${feedColor(f.label)}22`, borderColor: feedColor(f.label) }]}>
+                  <Text style={{ color: activeFeedFilters.includes(f.url) ? feedColor(f.label) : colors.textFaint, fontWeight: '700', fontSize: 12 }}>{f.label}</Text>
                 </Pressable>
               ))}
             </ScrollView>
@@ -1025,11 +1045,12 @@ export default function RssReaderScreen({ route }) {
                           </Text>
                         )}
                       </View>
-                      <Pressable onPress={() => toggleRule(r)} hitSlop={8} style={{ paddingHorizontal: 8 }}>
-                        <Text style={{ color: r.enabled ? '#34d399' : colors.textFaint, fontSize: 18 }}>
-                          {r.enabled ? '◉' : '○'}
-                        </Text>
-                      </Pressable>
+                      {/* Aç/kapa — önce ◉/○ karakteriydi ve fark edilmiyordu. */}
+                      <Switch
+                        value={!!r.enabled}
+                        onValueChange={() => toggleRule(r)}
+                        trackColor={{ false: colors.border, true: colors.primary }}
+                      />
                       <Pressable
                         onPress={() => setRuleForm({
                           id: r.id, name: r.name, scope: r.scope, feed_ids: r.feed_ids || [],
