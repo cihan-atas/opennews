@@ -14,17 +14,30 @@ export default function Collapsible({
   titleStyle,
   colors,
   defaultOpen = false,
+  open: openProp,          // kontrollü mod: durumu dışarıdan yönet
+  onToggle,                //   (yeniDeger) => void
   badge = null,            // başlığın yanında küçük sayaç/etiket
   containerStyle = null,
   headerStyle = null,
   children,
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+
+  // Kapalıyken children DOM'dan kalkar; iç içe kullanımda çocuk bölümlerin
+  // açık/kapalı durumu bu yüzden kaybolur. Kontrollü modda durum ebeveynde
+  // tutulur ve hatırlanır (bkz. SettingsScreen → openGroups).
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : internalOpen;
+
+  const toggle = () => {
+    if (isControlled) onToggle?.(!open);
+    else setInternalOpen((o) => !o);
+  };
 
   return (
     <View style={containerStyle}>
       <Pressable
-        onPress={() => setOpen((o) => !o)}
+        onPress={toggle}
         hitSlop={8}
         style={[{ flexDirection: 'row', alignItems: 'center', gap: 8 }, headerStyle]}
         accessibilityRole="button"
