@@ -47,3 +47,13 @@ google-service-account*.json
 *firebase-adminsdk*.json
 # Emniyet ağı: private key içeren her şey
 *-private-key.json
+
+# Release imza anahtarı ve şifreleri — repoya GİRMEZ, ayrıca yedeklenmeli
+credentials/
+*.jks
+*.keystore
+!android/app/debug.keystore
+
+# Derlenmiş APK'lar — release eki olarak dağıtılır, repoya girmez
+*.apk
+*.aab
