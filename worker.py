@@ -637,6 +637,21 @@ def _in_quiet_hours(user_id: int) -> bool:
     return now_minutes >= start_minutes or now_minutes < end_minutes   # ör. 23:00-08:00
 
 
+# Akış kaynaklı kapsamlar: makaleler news tablosundan gelir, bildirime
+# tıklanınca Akış ekranı açılmalı. Diğerleri RSS ekranına gider.
+NEWS_SCOPES = ("category", "trending_news")
+
+
+def _news_id_for_link(db, link: str):
+    """Akış makalesinin news.id'si. Bildirim anlık görüntüsü yalnızca linki
+    tuttuğu için (rss_seen_articles), tıklanınca açılacak haber source_url
+    üzerinden geri bulunur."""
+    if not link:
+        return None
+    row = db.query(models.News.id).filter(models.News.source_url == link).first()
+    return row[0] if row else None
+
+
 def _send_rule_notification(db, rule, new_rows: list, batch_stamp) -> None:
     """Kuralın gruplama tercihine göre bildirim(ler)i gönderir.
 
@@ -665,32 +680,46 @@ def _send_rule_notification(db, rule, new_rows: list, batch_stamp) -> None:
     # bildirimden anlaşılmalı — başlıkta kuralın kendi adı geçiyor.
     rule_name = rule.name or list_name
 
+    # Bildirime tıklanınca doğru ekran açılsın: akış kurallarının makaleleri
+    # news tablosundan gelir, RSS ekranında gösterilemez.
+    is_news = rule.scope in NEWS_SCOPES
+    icon = "📰" if is_news else "📡"
+
     if rule.grouping == "individual":
         for row in new_rows[:MAX_INDIVIDUAL_PER_RUN]:
             feed = row.feed_title or list_name
+            if is_news:
+                data = {"type": "news_article", "rule_id": rule.id,
+                        "news_id": _news_id_for_link(db, row.link),
+                        "category_id": rule.category_id}
+            else:
+                data = {"type": "rss_article", "article_id": row.id,
+                        "list_id": rule.list_id, "rule_id": rule.id}
             push_service.send(
                 tokens,
-                title=f"📡 {rule_name} · {feed}"[:100],
+                title=f"{icon} {rule_name} · {feed}"[:100],
                 body=row.title[:120],
-                data={"type": "rss_article", "article_id": row.id,
-                      "list_id": rule.list_id, "rule_id": rule.id},
+                data=data,
             )
         print(f"[Bildirim] Kural {rule.id}: {min(len(new_rows), MAX_INDIVIDUAL_PER_RUN)} ayrı bildirim.")
     else:
         count = len(new_rows)
         first = new_rows[0].title[:100] if new_rows else ""
+        data = {
+            # Tıklanınca tam olarak bu partinin makaleleri açılsın diye.
+            "rule_id": rule.id,
+            "batch_at": batch_stamp.isoformat(),
+            "count": count,
+        }
+        if is_news:
+            data.update({"type": "news_digest", "category_id": rule.category_id})
+        else:
+            data.update({"type": "rss_digest", "list_id": rule.list_id})
         push_service.send(
             tokens,
-            title=f"📡 {rule_name}: {count} yeni haber"[:100],
+            title=f"{icon} {rule_name}: {count} yeni haber"[:100],
             body=first,
-            data={
-                "type": "rss_digest",
-                "list_id": rule.list_id,
-                "rule_id": rule.id,
-                # Tıklanınca tam olarak bu partinin makaleleri açılsın diye.
-                "batch_at": batch_stamp.isoformat(),
-                "count": count,
-            },
+            data=data,
             badge=count,
         )
         print(f"[Bildirim] Kural {rule.id}: {count} haber tek özette gönderildi.")

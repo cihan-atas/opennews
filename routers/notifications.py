@@ -7,12 +7,14 @@ Depolama ve değerlendirme RSS kurallarıyla ortak (models.RssNotificationRule,
 scope="category"); böylece sessiz saatler, gruplama, tekilleştirme ve bildirime
 tıklayınca parti listesi bedavaya geliyor.
 """
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 import models
+import schemas
 from dependencies import db_dependency, user_dependency
 from worker import baseline_rss_rule_task
 
@@ -250,3 +252,65 @@ def upsert_trending_rule(kind: str, body: TrendingRuleUpsert,
         baseline_rss_rule_task.delay(rule.id)
 
     return get_trending_rule(kind, db, current_user)
+
+
+NEWS_SCOPES = ("category", "trending_news")
+
+
+def _parse_stamp(value: str):
+    """Bildirimdeki batch_at damgasını çözer (RSS tarafıyla aynı kurallar)."""
+    if not value:
+        return None
+    candidate = value.strip().replace(" ", "T")
+    if len(candidate) > 3 and candidate[-3] in "+-" and candidate[-3:].count(":") == 0:
+        candidate = f"{candidate}:00"
+    try:
+        return datetime.fromisoformat(candidate)
+    except (TypeError, ValueError):
+        return None
+
+
+@router.get("/batch/{rule_id}")
+def get_news_notification_batch(rule_id: int, at: str,
+                                db: db_dependency, current_user: user_dependency):
+    """Akış özet bildirimindeki haberlerin tamamı.
+
+    Bildirim anlık görüntüsü (rss_seen_articles) yalnızca başlık/link tutuyor;
+    Akış ekranı normal haber kartını ve podcast akışını kullanabilsin diye
+    haberler source_url üzerinden news tablosundan geri okunur.
+    """
+    rule = db.query(models.RssNotificationRule).filter(
+        models.RssNotificationRule.id == rule_id,
+        models.RssNotificationRule.user_id == current_user.id,
+        models.RssNotificationRule.scope.in_(NEWS_SCOPES),
+    ).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Bildirim kuralı bulunamadı.")
+
+    stamp = _parse_stamp(at)
+    if stamp is None:
+        raise HTTPException(status_code=400, detail="Geçersiz zaman damgası.")
+
+    links = [
+        r.link for r in db.query(models.RssSeenArticle).filter(
+            models.RssSeenArticle.rule_id == rule.id,
+            models.RssSeenArticle.notified_at == stamp,
+        ).all()
+    ]
+    items = []
+    if links:
+        items = (
+            db.query(models.News)
+            .filter(models.News.source_url.in_(links))
+            .order_by(models.News.published_at.desc().nulls_last(),
+                      models.News.created_at.desc())
+            .all()
+        )
+    return {
+        "rule_id": rule.id,
+        "rule_name": rule.name,
+        "category_id": rule.category_id,
+        "count": len(items),
+        # Alan adları /news/ listesiyle aynı → Akış ekranı kartları değişmeden çalışır.
+        "items": [schemas.NewsListOut.model_validate(n) for n in items],
+    }

@@ -97,6 +97,9 @@ export default function RssReaderScreen({ route }) {
 
   const pollRef = useRef(null);
   const pollTitleRef = useRef(null);
+  // Liste şeridi: bildirimle gelen listeye kaydırmak için
+  const listStripRef = useRef(null);
+  const listChipX = useRef({});
 
   // Makale modalı: kartın her yerinden aşağı çekince kapat (içerik en üstteyken)
   const articleY = useRef(new Animated.Value(0)).current;
@@ -160,26 +163,22 @@ export default function RssReaderScreen({ route }) {
   // Bildirime tıklanınca App.js buraya notifArticleId / notifListId ile yönlendirir.
   // Aynı bildirim iki kez işlenmesin diye son işlenen anahtar tutulur.
   const handledNotifRef = useRef(null);
+  // Ekran bir özet bildirimiyle açıldı mı? İlk render'da belli olmalı: fetchLists
+  // aksi halde varsayılan listeyi yükleyip partinin üstüne yazıyor.
+  const notifPendingRef = useRef(!!route?.params?.notifBatchRuleId);
   useEffect(() => {
-    const { notifArticleId, notifListId, notifBatchRuleId, notifBatchAt } = route?.params || {};
+    const { notifArticleId, notifListId, notifBatchRuleId, notifBatchAt, notifNonce } = route?.params || {};
     if (!notifArticleId && !notifListId && !notifBatchRuleId) return;
 
-    const key = `${notifArticleId || ''}:${notifListId || ''}:${notifBatchAt || ''}`;
+    const key = notifNonce || `${notifArticleId || ''}:${notifListId || ''}:${notifBatchAt || ''}`;
     if (handledNotifRef.current === key) return;
     handledNotifRef.current = key;
 
     const wantsBatch = !!(notifBatchRuleId && notifBatchAt);
+    notifPendingRef.current = wantsBatch;
 
-    // Listeyi seç (listeler henüz yüklenmediyse yüklenince bu effect tekrar çalışır)
-    if (notifListId && lists.length > 0) {
-      const target = lists.find((l) => l.id === notifListId);
-      if (target && target.id !== selectedList?.id) {
-        setSelectedList(target);
-        // Parti gösterilecekse listenin makalelerini ÇEKME: loadArticles asenkron
-        // biter ve parti listesinin üstüne yazardı.
-        if (!wantsBatch) loadArticles(target.id);
-      }
-    }
+    // Liste seçimi ayrı effect'te (aşağıda) — listeler geç yüklendiğinde burası
+    // bir kez çalışıp bittiği için seçim hiç yapılamıyordu.
 
     // Özet bildirimi: tam olarak o partideki makaleleri göster.
     if (wantsBatch) {
@@ -198,6 +197,9 @@ export default function RssReaderScreen({ route }) {
           setNotifBatch({ count: data.count, name: data.rule_name });
         } catch (_) {
           showToast('Bildirimdeki haberler açılamadı.', 'error');
+          // Parti gelmediyse ekran boş kalmasın: normal liste akışına dön.
+          notifPendingRef.current = false;
+          fetchLists();
         }
       })();
       return;
@@ -222,8 +224,48 @@ export default function RssReaderScreen({ route }) {
         showToast('Bildirimdeki makale açılamadı.', 'error');
       }
     })();
+    // notifNonce şart: aynı kuraldan gelen ikinci özet bildiriminde rule_id ve
+    // list_id değişmediği için effect tekrar çalışmıyor, bildirime basmak hiçbir
+    // şey yapmıyordu. batch_at de burada olmalı — parti kimliği o.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route?.params?.notifArticleId, route?.params?.notifListId, lists.length]);
+  }, [route?.params?.notifArticleId, route?.params?.notifListId,
+      route?.params?.notifBatchRuleId, route?.params?.notifBatchAt,
+      route?.params?.notifNonce, lists.length]);
+
+  // Bildirimin listesini seç. Ayrı effect: listeler bildirim işlendikten sonra
+  // yükleniyor, tek effect'te seçim atlanıyordu (araç çubuğu ve besleme
+  // filtreleri partiye ait olmayan listeyi gösteriyordu).
+  const listSelectedForRef = useRef(null);
+
+  // Seçili liste şeridin görünen kısmına kaydırılır. Ölçüm (onLayout) bildirim
+  // işlendiğinde henüz gelmemiş olabiliyor → kısa aralıklarla birkaç deneme.
+  const scrollListIntoView = (listId, attempt = 0) => {
+    const x = listChipX.current[listId];
+    if (x === undefined) {
+      if (attempt < 12) setTimeout(() => scrollListIntoView(listId, attempt + 1), 150);
+      return;
+    }
+    listStripRef.current?.scrollTo({ x: Math.max(0, x - 16), animated: true });
+  };
+
+  useEffect(() => {
+    const { notifListId, notifBatchRuleId, notifBatchAt, notifNonce } = route?.params || {};
+    if (!notifListId || lists.length === 0) return;
+
+    const key = notifNonce || `${notifListId}`;
+    if (listSelectedForRef.current === key) return;
+
+    const target = lists.find((l) => l.id === notifListId);
+    if (!target) return;
+    listSelectedForRef.current = key;
+    scrollListIntoView(target.id);
+    if (target.id === selectedList?.id) return;
+
+    setSelectedList(target);
+    // Parti gösteriliyorsa makaleleri ÇEKME: loadArticles partinin üstüne yazar.
+    if (!(notifBatchRuleId && notifBatchAt)) loadArticles(target.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route?.params?.notifListId, route?.params?.notifNonce, lists.length]);
 
   const fetchSaved = async () => {
     setLoadingSaved(true);
@@ -293,7 +335,18 @@ export default function RssReaderScreen({ route }) {
       if (res.ok) {
         const data = await res.json();
         setLists(data);
-        if (data.length > 0) { setSelectedList(data[0]); loadArticles(data[0].id); }
+        // Bildirimle açıldıysa ilk listeyi seçip makalelerini ÇEKME: bu istek
+        // parti isteğinden sonra bitip bildirimdeki haberlerin üstüne yazıyordu
+        // (kullanıcı bildirime basınca alakasız liste açılıyordu).
+        if (data.length > 0) {
+          setSelectedList(data[0]);
+          // Bayrak burada tüketilir: parti isteği liste isteğinden önce bitince
+          // (sık oluyor) bayrağı orada temizlemek yarışı çözmüyordu — bu yükleme
+          // yine partinin üstüne yazıyordu.
+          const skipAuto = notifPendingRef.current;
+          notifPendingRef.current = false;
+          if (!skipAuto) loadArticles(data[0].id);
+        }
       }
     } catch (_) { showToast('Listeler yüklenemedi.', 'error'); }
     finally { setLoadingLists(false); }
@@ -722,12 +775,15 @@ export default function RssReaderScreen({ route }) {
         {loadingLists ? (
           <ActivityIndicator color={colors.primaryLight} style={{ marginTop: 12 }} />
         ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }} contentContainerStyle={{ gap: 8 }}>
+          <ScrollView ref={listStripRef} horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }} contentContainerStyle={{ gap: 8 }}>
             {orderedLists.map((lst) => {
               const active = selectedList?.id === lst.id;
               const pinned = pinnedIds.includes(lst.id);
               return (
                 <Pressable key={lst.id} onPress={() => selectList(lst)} onLongPress={() => handleListLongPress(lst)}
+                  // Bildirimle gelen liste şeridin görünmeyen kısmında olabiliyor;
+                  // konumunu bilmeden oraya kaydıramayız.
+                  onLayout={(e) => { listChipX.current[lst.id] = e.nativeEvent.layout.x; }}
                   style={[styles.listChip, active && styles.listChipActive]}>
                   {pinned ? (
                     <Text style={{ fontSize: 11 }}>📌</Text>

@@ -60,7 +60,12 @@ export default function HomeScreen() {
   const refreshPoll = useRef(null);
   const bulletinPoll = useRef(null);
 
+  // Son başlatılan yükleme kazanır. Akış ilk sekme olduğu için normal çekim
+  // bildirim partisinden önce başlıyor ve geç dönüp partinin üstüne yazabiliyordu.
+  const loadTokenRef = useRef(0);
+
   const fetchNews = useCallback(async (query, p, catId, multiIds = []) => {
+    const token = ++loadTokenRef.current;
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(p), size: String(PAGE_SIZE) });
@@ -73,13 +78,14 @@ export default function HomeScreen() {
       const res = await apiFetch(`/news/?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
+        if (loadTokenRef.current !== token) return;   // daha yeni bir yükleme var
         setNewsList(data.items);
         setTotalCount(data.total_count);
       }
     } catch (_) {
       showToast('Haberler çekilirken bir sorun oluştu.', 'error');
     } finally {
-      setLoading(false);
+      if (loadTokenRef.current === token) setLoading(false);
     }
   }, [showToast]);
 
@@ -93,11 +99,104 @@ export default function HomeScreen() {
     })();
   }, []);
 
+  // Özet bildirimiyle açıldıysa akış listesi yerine o partinin haberleri gösterilir.
+  // Ref ilk render'da dolu olmalı: aşağıdaki normal çekim yoksa parti listesinin
+  // üstüne yazıyor (bildirime basınca alakasız haberler geliyordu).
+  const notifBatchPendingRef = useRef(!!route.params?.notifBatchRuleId);
+  const [notifBatch, setNotifBatch] = useState(null); // { count, name }
+  const handledBatchRef = useRef(null);
+
+  // Kategori şeridi: bildirimle gelen kategoriye kaydırmak için
+  const catStripRef = useRef(null);
+  const catChipX = useRef({});
+  // Bildirim kategoriyi seçtiğinde tetiklenen çekim atlanır — parti gösteriliyor.
+  const skipNextFetchRef = useRef(false);
+  // Seçim durumunun güncel kopyası (async parti işleyicisi eski state'i görmesin)
+  const activeCatRef = useRef(activeCategoryId);
+  const multiCatRef = useRef(multiCategoryIds);
   useEffect(() => {
+    activeCatRef.current = activeCategoryId;
+    multiCatRef.current = multiCategoryIds;
+  }, [activeCategoryId, multiCategoryIds]);
+
+  const scrollCategoryIntoView = (catId, attempt = 0) => {
+    const x = catChipX.current[catId];
+    if (x === undefined) {
+      if (attempt < 12) setTimeout(() => scrollCategoryIntoView(catId, attempt + 1), 150);
+      return;
+    }
+    catStripRef.current?.scrollTo({ x: Math.max(0, x - 16), animated: true });
+  };
+
+  useEffect(() => {
+    if (skipNextFetchRef.current) {
+      skipNextFetchRef.current = false;
+      return;
+    }
+    if (notifBatchPendingRef.current) {
+      // İlk çekim parti için atlanır; sonraki tetiklemeler (kategori/sayfa
+      // değişimi) normal akışa döner.
+      notifBatchPendingRef.current = false;
+      return;
+    }
+    setNotifBatch(null);
     fetchNews(search, page, activeCategoryId, multiCategoryIds);
     // search'i değişimde tetiklemiyoruz; sadece submit'te (handleSearch) çalışır.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, activeCategoryId, multiCategoryIds]);
+
+  // Akış özet bildirimine tıklanınca: tam olarak o bildirimdeki haberler.
+  useEffect(() => {
+    const { notifBatchRuleId, notifBatchAt, notifNonce } = route.params || {};
+    if (!notifBatchRuleId || !notifBatchAt) return;
+
+    // Aynı kuraldan ikinci bildirim geldiğinde rule_id değişmediği için nonce şart.
+    const key = notifNonce || `${notifBatchRuleId}:${notifBatchAt}`;
+    if (handledBatchRef.current === key) return;
+    handledBatchRef.current = key;
+
+    (async () => {
+      const token = ++loadTokenRef.current;
+      setLoading(true);
+      try {
+        const res = await apiFetch(
+          `/notifications/batch/${notifBatchRuleId}?at=${encodeURIComponent(notifBatchAt)}`,
+        );
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (loadTokenRef.current !== token) return;
+        setSearch('');
+        setNewsList(data.items || []);
+        setTotalCount((data.items || []).length);
+        setNotifBatch({ count: data.count, name: data.rule_name });
+
+        // Kuralın kategorisi seçili görünsün ve şerit oraya kaysın; kullanıcı
+        // hangi kategoriden bildirim geldiğini çipten de görebilsin.
+        if (data.category_id) {
+          // Seçim değişmiyorsa effect hiç tetiklenmez; bayrağı boşuna yakmayalım.
+          if (activeCatRef.current !== data.category_id || multiCatRef.current.length) {
+            skipNextFetchRef.current = true;
+          }
+          setMultiCategoryIds([]);
+          setActiveCategoryId(data.category_id);
+          scrollCategoryIntoView(data.category_id);
+        }
+      } catch (_) {
+        notifBatchPendingRef.current = false;
+        showToast('Bildirimdeki haberler açılamadı.', 'error');
+      } finally {
+        setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params?.notifBatchRuleId, route.params?.notifBatchAt, route.params?.notifNonce]);
+
+  const closeNotifBatch = () => {
+    setNotifBatch(null);
+    handledBatchRef.current = null;
+    navigation.setParams({ notifBatchRuleId: undefined, notifBatchAt: undefined, notifNonce: undefined });
+    fetchNews(search, page, activeCategoryId, multiCategoryIds);
+  };
 
   useEffect(() => () => {
     if (refreshPoll.current) clearInterval(refreshPoll.current);
@@ -133,6 +232,7 @@ export default function HomeScreen() {
     pushSearchHistory(search);
     setShowHistory(false);
     setPage(1);
+    setNotifBatch(null);
     fetchNews(search, 1, activeCategoryId, multiCategoryIds);
   };
 
@@ -288,6 +388,7 @@ export default function HomeScreen() {
             clearInterval(refreshPoll.current);
             refreshPoll.current = null;
             setRefreshing(false);
+            setNotifBatch(null);
             fetchNews(search, 1, activeCategoryId, multiCategoryIds);
             setPage(1);
             showToast('✅ Gündem güncellendi!');
@@ -355,6 +456,18 @@ export default function HomeScreen() {
     <View>
       <Text style={styles.h1}>Günün Özeti</Text>
       <Text style={styles.sub}>Pürüzsüz ve sana özel bir haber akışı.</Text>
+
+      {/* Özet bildirimine tıklanınca: yalnızca o bildirimdeki haberler listelenir */}
+      {notifBatch && (
+        <View style={styles.batchBanner}>
+          <Text style={{ color: '#fbbf24', fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={2}>
+            🔔 {notifBatch.name} · bildirimdeki {notifBatch.count} haber
+          </Text>
+          <Pressable onPress={closeNotifBatch} hitSlop={8} style={styles.batchClose}>
+            <Text style={{ color: colors.textDim, fontWeight: '700', fontSize: 12 }}>✕ Tümü</Text>
+          </Pressable>
+        </View>
+      )}
 
       <View style={styles.searchRow}>
         <TextInput
@@ -428,7 +541,7 @@ export default function HomeScreen() {
         )}
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 18 }} contentContainerStyle={{ gap: 8 }}>
+      <ScrollView ref={catStripRef} horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 18 }} contentContainerStyle={{ gap: 8 }}>
         {categories
           .filter((cat) => {
             const q = catSearch.trim().toLowerCase();
@@ -444,6 +557,9 @@ export default function HomeScreen() {
               onPress={() => handleCategory(cat.id)}
               onLongPress={() => handleCategoryLong(cat.id)}
               delayLongPress={280}
+              // Bildirimle gelen kategori şeridin dışında kalabiliyor; konumu
+              // bilinmeden oraya kaydırılamaz.
+              onLayout={(e) => { if (cat.id) catChipX.current[cat.id] = e.nativeEvent.layout.x; }}
               style={[styles.chip, active && styles.chipActive]}>
               <Text style={{ color: active ? colors.white : colors.textMuted, fontWeight: '600' }}>{cat.name}</Text>
             </Pressable>
@@ -502,7 +618,7 @@ export default function HomeScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primaryLight} />}
           ListEmptyComponent={!loading ? <Text style={styles.empty}>Haber bulunamadı.</Text> : null}
           ListFooterComponent={
-            totalPages > 1 ? (
+            !notifBatch && totalPages > 1 ? (
               <View style={styles.pager}>
                 <Pressable disabled={page === 1} onPress={() => setPage((p) => p - 1)} style={[styles.pageBtn, page === 1 && { opacity: 0.3 }]}>
                   <Text style={styles.pageBtnText}>←</Text>
@@ -715,6 +831,17 @@ const makeStyles = (colors) => StyleSheet.create({
   notifBtn: {
     borderWidth: 1, borderColor: 'rgba(245,158,11,0.35)', borderRadius: radius.sm,
     paddingVertical: 12, alignItems: 'center', marginBottom: 12,
+  },
+  // Bildirim partisi şeridi (RSS ekranındakiyle aynı görünüm)
+  batchBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginBottom: 14, paddingVertical: 10, paddingHorizontal: 12,
+    backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.35)', borderRadius: radius.sm,
+  },
+  batchClose: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: 8,
+    paddingVertical: 4, paddingHorizontal: 8,
   },
   sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
   sheet: {

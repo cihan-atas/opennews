@@ -31,7 +31,14 @@ export default function App() {
       if (data.type === 'podcast_ready') return { screen: 'Podcasts' };
       // RSS bildirimleri: tek makale → makaleyi aç, özet → listeyi aç
       if (data.type === 'rss_article') {
-        return { screen: 'RSS', params: { notifArticleId: data.article_id, notifListId: data.list_id } };
+        return {
+          screen: 'RSS',
+          params: {
+            notifArticleId: data.article_id,
+            notifListId: data.list_id,
+            notifNonce: `a${data.article_id}`,
+          },
+        };
       }
       if (data.type === 'rss_digest') {
         // Sadece listeye düşmek yetmiyordu: bildirimdeki haberleri yüzlerce
@@ -42,6 +49,24 @@ export default function App() {
             notifListId: data.list_id,
             notifBatchRuleId: data.rule_id,
             notifBatchAt: data.batch_at,
+            // Aynı kuraldan ikinci bildirim geldiğinde parametreler birebir aynı
+            // kalmasın: ekran değişiklik görmezse partiyi yeniden açmaz.
+            notifNonce: `${data.rule_id}:${data.batch_at}`,
+          },
+        };
+      }
+      // Akış (kategori / akış gündemi) bildirimleri: haberler news tablosundan
+      // geliyor, RSS ekranında gösterilemez → Akış sekmesi açılır.
+      if (data.type === 'news_article' && data.news_id) {
+        return { screen: 'Home', params: { openNewsId: Number(data.news_id) } };
+      }
+      if (data.type === 'news_digest') {
+        return {
+          screen: 'Home',
+          params: {
+            notifBatchRuleId: data.rule_id,
+            notifBatchAt: data.batch_at,
+            notifNonce: `${data.rule_id}:${data.batch_at}`,
           },
         };
       }
