@@ -356,8 +356,11 @@ def translate_news(news_id: int, db: db_dependency, current_user: user_dependenc
         return {"summary": news.summary, "content": content_src,
                 "translated": news.summary or content_src, "lang": lang, "orig_lang": orig_lang}
 
-    translated_summary = translate_cached(db, news.summary, lang) if news.summary else None
-    translated_content = translate_cached(db, content_src, lang) if content_src else None
+    # BYOK: çeviri kullanıcının kendi AI anahtarıyla yapılmalı (bkz. rss_reader/translate).
+    from services import settings_store
+    with settings_store.user_context(current_user.id):
+        translated_summary = translate_cached(db, news.summary, lang) if news.summary else None
+        translated_content = translate_cached(db, content_src, lang) if content_src else None
     return {
         "summary": translated_summary,
         "content": translated_content,

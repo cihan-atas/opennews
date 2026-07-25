@@ -215,7 +215,11 @@ def translate_rss_article(body: RssTranslateRequest, db: db_dependency, current_
     if body.lang not in ("en", "tr"):
         raise HTTPException(status_code=400, detail="lang must be 'en' or 'tr'")
     from utils import translate_cached
-    translated = translate_cached(db, body.text[:3000], body.lang)
+    from services import settings_store
+    # BYOK: çeviri kullanıcının kendi AI anahtarıyla yapılmalı. Bu bağlam
+    # olmadan .env'deki anahtara düşülüyor ve geçersizse 401 alınıyordu.
+    with settings_store.user_context(current_user.id):
+        translated = translate_cached(db, body.text[:3000], body.lang)
     return {"translated": translated, "lang": body.lang}
 
 
