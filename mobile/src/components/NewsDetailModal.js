@@ -5,6 +5,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { apiFetch } from '../api/client';
+import { formatArticleDateLong } from '../utils/formatDate';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useToast, Toast } from './Toast';
 import { radius } from '../theme';
@@ -204,6 +205,9 @@ export default function NewsDetailModal({ newsId, visible, onClose }) {
             >
               {!!news.category?.name && <Text style={styles.category}>{news.category.name}</Text>}
               <Text style={styles.title}>{news.title}</Text>
+              {!!news.published_at && (
+                <Text style={styles.publishedAt}>🕐 {formatArticleDateLong(news.published_at)}</Text>
+              )}
 
               {/* Dil seçimi: Orijinal / TR / EN (haberin orijinal diline göre çevirir) */}
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -314,7 +318,8 @@ const makeStyles = (colors) => StyleSheet.create({
   grabber: { width: 44, height: 5, borderRadius: 3, backgroundColor: colors.textDim, opacity: 0.6 },
   closeBtn: { position: 'absolute', right: 14, top: 6, width: 36, height: 36, borderRadius: 18, backgroundColor: colors.chip, alignItems: 'center', justifyContent: 'center', zIndex: 5 },
   category: { color: colors.primaryLight, fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 },
-  title: { color: colors.text, fontSize: 26, fontWeight: '800', marginTop: 8, marginBottom: 20 },
+  title: { color: colors.text, fontSize: 26, fontWeight: '800', marginTop: 8, marginBottom: 8 },
+  publishedAt: { color: colors.textFaint, fontSize: 12, marginBottom: 18 },
   summaryCard: { backgroundColor: 'rgba(99,102,241,0.06)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.15)', borderRadius: radius.md, padding: 16, marginBottom: 20 },
   summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 },
   summaryLabel: { color: colors.primaryLight, fontSize: 11, fontWeight: '900', letterSpacing: 1 },

@@ -6,6 +6,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { apiFetch } from '../api/client';
+import { formatArticleDate } from '../utils/formatDate';
 import { useToast, Toast } from '../components/Toast';
 import NewsDetailModal from '../components/NewsDetailModal';
 import { radius } from '../theme';
@@ -393,6 +394,9 @@ export default function HomeScreen() {
         <Text style={styles.cardCat}>{news.category?.name || 'Haber'}</Text>
         {readingTime(news.summary || news.content) && (
           <Text style={styles.cardMeta}>· {readingTime(news.summary || news.content)} dk okuma</Text>
+        )}
+        {!!news.published_at && (
+          <Text style={[styles.cardMeta, { marginLeft: 'auto' }]}>{formatArticleDate(news.published_at)}</Text>
         )}
       </View>
       <Text style={styles.cardTitle}>{news.title}</Text>

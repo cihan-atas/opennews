@@ -11,6 +11,7 @@ import { useToast, Toast } from '../components/Toast';
 import { radius } from '../theme';
 import { useTheme } from '../contexts/ThemeContext';
 import { groupCategories } from '../utils/categoryTree';
+import { formatArticleDate, formatArticleDateLong } from '../utils/formatDate';
 import IntervalStepper, { formatInterval, INTERVAL_MIN } from '../components/IntervalStepper';
 
 const FEED_COLORS = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6'];
@@ -821,7 +822,7 @@ export default function RssReaderScreen({ route }) {
                     <Pressable onPress={() => openArticle(a)} style={styles.article}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                         <Text style={[styles.feedBadge, { color: feedColor(a.feed_title), backgroundColor: `${feedColor(a.feed_title)}22` }]}>{a.feed_title || 'RSS'}</Text>
-                        {!!a.published && <Text style={{ color: colors.textFaint, fontSize: 11, marginLeft: 'auto' }}>{new Date(a.published).toLocaleDateString('tr-TR')}</Text>}
+                        {!!a.published && <Text style={{ color: colors.textFaint, fontSize: 11, marginLeft: 'auto' }}>{formatArticleDate(a.published)}</Text>}
                       </View>
                       <Text style={styles.articleTitle}>{a.title}</Text>
                       {!!a.summary && <Text style={styles.articleSummary} numberOfLines={2}>{stripHtml(a.summary)}</Text>}
@@ -1351,6 +1352,9 @@ export default function RssReaderScreen({ route }) {
               scrollEventThrottle={16}
             >
               <Text style={styles.modalTitle}>{selectedArticle?.title}</Text>
+              {!!selectedArticle?.published && (
+                <Text style={styles.modalDate}>🕐 {formatArticleDateLong(selectedArticle.published)}</Text>
+              )}
 
               <View style={styles.summaryCard}>
                 <View style={styles.summaryHeader}>
@@ -1469,7 +1473,8 @@ const makeStyles = (colors) => StyleSheet.create({
     borderWidth: 1, borderColor: colors.border, borderRadius: 8,
     paddingVertical: 4, paddingHorizontal: 8,
   },
-  modalTitle: { color: colors.text, fontSize: 22, fontWeight: '900', lineHeight: 28, marginBottom: 18 },
+  modalTitle: { color: colors.text, fontSize: 22, fontWeight: '900', lineHeight: 28, marginBottom: 8 },
+  modalDate: { color: colors.textFaint, fontSize: 12, marginBottom: 18 },
   summaryCard: { backgroundColor: 'rgba(99,102,241,0.06)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.12)', borderRadius: radius.md, padding: 16, marginBottom: 18 },
   summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   summaryLabel: { color: colors.primaryLight, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
