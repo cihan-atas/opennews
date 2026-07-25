@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 EXPO_PUSH_RECEIPT_URL = "https://exp.host/--/api/v2/push/getReceipts"
 
+# Uygulamanın açılışta oluşturduğu Android bildirim kanalı.
+# mobile/src/api/notifications.js içindeki ANDROID_CHANNEL_ID ile aynı olmalı.
+ANDROID_CHANNEL_ID = "default"
+
 
 def send(
     tokens: list[str],
@@ -37,6 +41,10 @@ def send(
             "body": body,
             "data": data or {},
             "sound": "default",
+            # Android'de kanal belirtilmezse Expo'nun yedek kanalına düşer ve
+            # uygulamada kurduğumuz kanal (önem/titreşim/ışık) kullanılmaz.
+            # Karşılığı: mobile/src/api/notifications.js → ANDROID_CHANNEL_ID
+            "channelId": ANDROID_CHANNEL_ID,
             **({"badge": badge} if badge is not None else {}),
         }
         for token in valid

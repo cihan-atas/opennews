@@ -43,3 +43,7 @@ yarn-error.*
 # FCM / Firebase kimlik bilgileri — repoya GİRMEZ
 google-services.json
 google-service-account*.json
+# Firebase'in indirdiği service account anahtarı: <proje>-firebase-adminsdk-<...>.json
+*firebase-adminsdk*.json
+# Emniyet ağı: private key içeren her şey
+*-private-key.json
