@@ -34,7 +34,16 @@ export default function App() {
         return { screen: 'RSS', params: { notifArticleId: data.article_id, notifListId: data.list_id } };
       }
       if (data.type === 'rss_digest') {
-        return { screen: 'RSS', params: { notifListId: data.list_id } };
+        // Sadece listeye düşmek yetmiyordu: bildirimdeki haberleri yüzlerce
+        // makale arasında bulmak zor. batch_at ile tam o parti açılır.
+        return {
+          screen: 'RSS',
+          params: {
+            notifListId: data.list_id,
+            notifBatchRuleId: data.rule_id,
+            notifBatchAt: data.batch_at,
+          },
+        };
       }
       return null;
     };

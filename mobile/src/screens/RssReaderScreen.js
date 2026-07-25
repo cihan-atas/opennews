@@ -19,6 +19,19 @@ const feedColor = (title) => {
   return FEED_COLORS[idx];
 };
 const stripHtml = (html) => (html ? html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() : '');
+
+// Bildirim aralığı: 15 dk adımlarla, 15 dk – 24 saat arası (backend de aynı sınırı doğrular).
+const INTERVAL_STEP = 15;
+const INTERVAL_MIN = 15;
+const INTERVAL_MAX = 1440;
+// 90 → "1 sa 30 dk", 60 → "1 sa", 45 → "45 dk"
+const formatInterval = (m) => {
+  const total = Number(m) || INTERVAL_MIN;
+  const h = Math.floor(total / 60);
+  const mm = total % 60;
+  if (h === 0) return `${mm} dk`;
+  return mm === 0 ? `${h} sa` : `${h} sa ${mm} dk`;
+};
 // Başlığı çekilemeyen beslemeler için url'den okunur bir etiket üret (örn. venturebeat.com)
 const hostFromUrl = (url) => {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
@@ -65,6 +78,8 @@ export default function RssReaderScreen({ route }) {
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifSaving, setNotifSaving] = useState(false);
   const [ruleForm, setRuleForm] = useState(null); // null = liste görünümü, obje = form
+  // Özet bildirimine tıklanınca o partinin makaleleri gösterilir: { count, name }
+  const [notifBatch, setNotifBatch] = useState(null);
 
   const [showCommunity, setShowCommunity] = useState(false);
   const [communityFeeds, setCommunityFeeds] = useState([]);
@@ -155,20 +170,46 @@ export default function RssReaderScreen({ route }) {
   // Aynı bildirim iki kez işlenmesin diye son işlenen anahtar tutulur.
   const handledNotifRef = useRef(null);
   useEffect(() => {
-    const { notifArticleId, notifListId } = route?.params || {};
-    if (!notifArticleId && !notifListId) return;
+    const { notifArticleId, notifListId, notifBatchRuleId, notifBatchAt } = route?.params || {};
+    if (!notifArticleId && !notifListId && !notifBatchRuleId) return;
 
-    const key = `${notifArticleId || ''}:${notifListId || ''}`;
+    const key = `${notifArticleId || ''}:${notifListId || ''}:${notifBatchAt || ''}`;
     if (handledNotifRef.current === key) return;
     handledNotifRef.current = key;
+
+    const wantsBatch = !!(notifBatchRuleId && notifBatchAt);
 
     // Listeyi seç (listeler henüz yüklenmediyse yüklenince bu effect tekrar çalışır)
     if (notifListId && lists.length > 0) {
       const target = lists.find((l) => l.id === notifListId);
       if (target && target.id !== selectedList?.id) {
         setSelectedList(target);
-        loadArticles(target.id);
+        // Parti gösterilecekse listenin makalelerini ÇEKME: loadArticles asenkron
+        // biter ve parti listesinin üstüne yazardı.
+        if (!wantsBatch) loadArticles(target.id);
       }
+    }
+
+    // Özet bildirimi: tam olarak o partideki makaleleri göster.
+    if (wantsBatch) {
+      (async () => {
+        try {
+          const res = await apiFetch(
+            `/rss-reader/notification-batch/${notifBatchRuleId}?at=${encodeURIComponent(notifBatchAt)}`,
+          );
+          if (!res.ok) throw new Error();
+          const data = await res.json();
+          setShowSaved(false);
+          setShowTrending(false);
+          setSearchTerm('');
+          setActiveFeedFilter(null);
+          setArticles(data.articles || []);
+          setNotifBatch({ count: data.count, name: data.rule_name });
+        } catch (_) {
+          showToast('Bildirimdeki haberler açılamadı.', 'error');
+        }
+      })();
+      return;
     }
 
     if (!notifArticleId) return;
@@ -270,6 +311,7 @@ export default function RssReaderScreen({ route }) {
   const loadArticles = async (listId) => {
     setLoadingArticles(true);
     setArticles([]); setSearchTerm(''); setDebouncedSearch(''); setActiveFeedFilter(null);
+    setNotifBatch(null);   // normal listeye dönüldü, bildirim şeridi kalkar
     try {
       const res = await apiFetch(`/rss-reader/lists/${listId}/articles`);
       if (res.ok) setArticles(await res.json());
@@ -446,11 +488,55 @@ export default function RssReaderScreen({ route }) {
     } catch (_) { showToast('Silinemedi.', 'error'); }
   };
 
+  // ── Aralık artır/azalt: basılı tutunca hızlanan tekrar ───────────────────────
+  // 15 dk ile 24 saat arası 95 adım; tek tek basmak yorucu olurdu.
+  const holdTimerRef = useRef(null);
+  const holdCountRef = useRef(0);
+  const intervalRef = useRef(INTERVAL_MIN);   // tekrar sırasında anlık değer buradan okunur
+
+  useEffect(() => {
+    intervalRef.current = ruleForm?.interval_minutes || INTERVAL_MIN;
+  }, [ruleForm?.interval_minutes]);
+
+  const stopHold = () => {
+    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
+    holdCountRef.current = 0;
+  };
+
+  // Ekrandan çıkarken kalan zamanlayıcı olmasın.
+  useEffect(() => stopHold, []);
+
+  const applyStep = (delta) => {
+    const cur = intervalRef.current;
+    const next = Math.min(INTERVAL_MAX, Math.max(INTERVAL_MIN, cur + delta));
+    if (next === cur) return false;           // sınıra dayandı
+    intervalRef.current = next;
+    setRuleForm((p) => (p ? { ...p, interval_minutes: next } : p));
+    return true;
+  };
+
+  const startHold = (dir) => {
+    applyStep(dir * INTERVAL_STEP);           // ilk dokunuşun kendisi
+    holdCountRef.current = 0;
+
+    const tick = () => {
+      holdCountRef.current += 1;
+      const n = holdCountRef.current;
+      // Kademeli hızlanma: önce 15 dk, sonra 30 dk, sonra 1 saatlik sıçramalar.
+      const mult = n > 20 ? 4 : n > 8 ? 2 : 1;
+      const delay = n > 20 ? 60 : n > 8 ? 80 : 110;
+      if (!applyStep(dir * INTERVAL_STEP * mult)) { stopHold(); return; }
+      holdTimerRef.current = setTimeout(tick, delay);
+    };
+
+    holdTimerRef.current = setTimeout(tick, 400);   // basılı tutma eşiği
+  };
+
   // "Tüm beslemeler · 15 dk · tek özet" gibi tek satırlık okunur özet
   const ruleSummary = (r) => {
     const kapsam = r.scope === 'all' ? 'Tüm beslemeler' : `${r.feed_ids.length} besleme`;
-    const dk = r.effective_interval_minutes;
-    const sure = dk >= 1440 ? 'günde 1' : dk >= 60 ? `${dk / 60} saatte 1` : `${dk} dk`;
+    const sure = formatInterval(r.effective_interval_minutes);
     const grup = r.grouping === 'digest' ? 'tek özet' : 'her makale ayrı';
     return `${kapsam} · ${sure} · ${grup}`;
   };
@@ -694,6 +780,20 @@ export default function RssReaderScreen({ route }) {
               </Text>
             </Pressable>
           </View>
+
+          {/* Bildirim partisi şeridi — hangi bildirime baktığın belli olsun */}
+          {notifBatch && (
+            <View style={styles.batchBanner}>
+              <Text style={{ color: '#fbbf24', fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={2}>
+                🔔 {notifBatch.name} · bildirimdeki {notifBatch.count} haber
+              </Text>
+              <Pressable
+                onPress={() => { setNotifBatch(null); if (selectedList) loadArticles(selectedList.id); }}
+                hitSlop={8} style={styles.batchClose}>
+                <Text style={{ color: colors.textDim, fontWeight: '700', fontSize: 12 }}>✕ Tümü</Text>
+              </Pressable>
+            </View>
+          )}
 
           {articles.length > 0 && (
             <TextInput
@@ -1059,17 +1159,37 @@ export default function RssReaderScreen({ route }) {
                     ))}
                   </View>
 
-                  {ruleForm.mode === 'interval' && (
-                    <View style={styles.ruleChipRow}>
-                      {[{ v: 30, l: '30 dk' }, { v: 60, l: '1 saat' }, { v: 180, l: '3 saat' },
-                        { v: 360, l: '6 saat' }, { v: 1440, l: 'Günde 1' }].map((o) => (
-                        <Pressable key={o.v} onPress={() => setRuleForm((p) => ({ ...p, interval_minutes: o.v }))}
-                          style={[styles.ruleChip, ruleForm.interval_minutes === o.v && styles.ruleChipOn]}>
-                          <Text style={{ color: ruleForm.interval_minutes === o.v ? colors.primaryLight : colors.textFaint, fontSize: 12, fontWeight: '700' }}>{o.l}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  )}
+                  {ruleForm.mode === 'interval' && (() => {
+                    const cur = ruleForm.interval_minutes || INTERVAL_MIN;
+                    const atMin = cur <= INTERVAL_MIN;
+                    const atMax = cur >= INTERVAL_MAX;
+                    return (
+                      <>
+                        <View style={styles.stepperRow}>
+                          <Pressable
+                            onPressIn={() => startHold(-1)} onPressOut={stopHold}
+                            disabled={atMin}
+                            style={[styles.stepperBtn, atMin && { opacity: 0.35 }]} hitSlop={6}>
+                            <Text style={styles.stepperSign}>−</Text>
+                          </Pressable>
+                          <View style={styles.stepperValue}>
+                            <Text style={{ color: colors.text, fontSize: 16, fontWeight: '800' }}>
+                              {formatInterval(cur)}
+                            </Text>
+                          </View>
+                          <Pressable
+                            onPressIn={() => startHold(1)} onPressOut={stopHold}
+                            disabled={atMax}
+                            style={[styles.stepperBtn, atMax && { opacity: 0.35 }]} hitSlop={6}>
+                            <Text style={styles.stepperSign}>+</Text>
+                          </Pressable>
+                        </View>
+                        <Text style={{ color: colors.textFaint, fontSize: 11, marginTop: 6 }}>
+                          15 dakikalık adımlarla · basılı tutunca hızlanır · 15 dk – 24 saat
+                        </Text>
+                      </>
+                    );
+                  })()}
 
                   <Text style={styles.ruleLabel}>Nasıl gelsin?</Text>
                   <View style={styles.ruleChipRow}>
@@ -1372,6 +1492,29 @@ const makeStyles = (colors) => StyleSheet.create({
   ruleChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   ruleChip: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 7, paddingHorizontal: 12 },
   ruleChipOn: { backgroundColor: colors.primarySoft, borderColor: colors.primaryLight },
+  // Aralık artır/azalt kutusu: solda −, ortada değer, sağda +
+  stepperRow: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
+  stepperBtn: {
+    width: 52, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm,
+    backgroundColor: colors.inputBg, alignItems: 'center', justifyContent: 'center',
+  },
+  stepperSign: { color: colors.primaryLight, fontSize: 22, fontWeight: '800', lineHeight: 26 },
+  // Bildirim partisi şeridi
+  batchBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginHorizontal: 16, marginTop: 8, paddingVertical: 10, paddingHorizontal: 12,
+    backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.35)', borderRadius: radius.sm,
+  },
+  batchClose: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: 8,
+    paddingVertical: 4, paddingHorizontal: 8,
+  },
+  stepperValue: {
+    flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm,
+    backgroundColor: colors.inputBg, alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 12,
+  },
   modalTitle: { color: colors.text, fontSize: 22, fontWeight: '900', lineHeight: 28, marginBottom: 18 },
   summaryCard: { backgroundColor: 'rgba(99,102,241,0.06)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.12)', borderRadius: radius.md, padding: 16, marginBottom: 18 },
   summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },

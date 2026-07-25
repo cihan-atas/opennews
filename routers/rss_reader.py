@@ -338,7 +338,11 @@ def check_rss_podcast(title: str, db: db_dependency, current_user: user_dependen
 # "Hemen" modunda beslemeler bu sıklıkta yoklanır. Gerçek push yok — RSS'i biz
 # yokluyoruz; 15 dk sunucuya ve yayıncılara saygılı bir denge.
 IMMEDIATE_INTERVAL_MINUTES = 15
-ALLOWED_INTERVALS = (30, 60, 180, 360, 1440)
+# Aralık serbest ama 15 dakikanın katı olmalı: beslemeler zaten 15 dk'dan sık
+# yoklanmıyor, ara değerler bir şey kazandırmadan yayıncıya yük bindirirdi.
+INTERVAL_STEP_MINUTES = 15
+MIN_INTERVAL_MINUTES = 15
+MAX_INTERVAL_MINUTES = 1440      # 24 saat
 VALID_SCOPES = ("all", "selected")
 VALID_MODES = ("immediate", "interval")
 VALID_GROUPINGS = ("digest", "individual")
@@ -374,8 +378,14 @@ def _validate_rule(scope: str, mode: str, grouping: str,
         raise HTTPException(status_code=400, detail="Geçersiz gruplama.")
     if scope == "selected" and not feed_ids:
         raise HTTPException(status_code=400, detail="En az bir besleme seçmelisin.")
-    if mode == "interval" and interval_minutes not in ALLOWED_INTERVALS:
-        raise HTTPException(status_code=400, detail="Geçersiz aralık.")
+    if mode == "interval":
+        if (not isinstance(interval_minutes, int)
+                or interval_minutes % INTERVAL_STEP_MINUTES != 0
+                or not (MIN_INTERVAL_MINUTES <= interval_minutes <= MAX_INTERVAL_MINUTES)):
+            raise HTTPException(
+                status_code=400,
+                detail="Aralık 15 dakikanın katı olmalı (en az 15 dk, en çok 24 saat).",
+            )
 
 
 def _own_list_or_404(db, list_id: int, user_id: int) -> models.UserRssList:
@@ -534,6 +544,70 @@ def delete_notification_rule(rule_id: int, db: db_dependency, current_user: user
     db.delete(rule)          # rule_feeds ve seen_articles CASCADE ile gider
     db.commit()
     return {"message": "Bildirim kuralı silindi."}
+
+
+def _parse_stamp(value: str):
+    """Bildirimdeki batch_at damgasını çözer.
+
+    Uygulama datetime.isoformat() gönderir ("...+00:00"). Elle test ederken
+    Postgres'in metin biçimi de ("... +00", boşluklu) kullanılabildiği için
+    o varyantlar da kabul ediliyor.
+    """
+    if not value:
+        return None
+    candidate = value.strip().replace(" ", "T")
+    # "+00" gibi iki haneli ofseti "+00:00" yap
+    if len(candidate) > 3 and candidate[-3] in "+-" and candidate[-3:].count(":") == 0:
+        candidate = f"{candidate}:00"
+    try:
+        return datetime.fromisoformat(candidate)
+    except (TypeError, ValueError):
+        return None
+
+
+@router.get("/notification-batch/{rule_id}")
+def get_notification_batch(rule_id: int, at: str, db: db_dependency, current_user: user_dependency):
+    """Bir özet bildiriminde gönderilen makalelerin tamamı.
+
+    Özet bildirimine tıklanınca kullanıcı sadece listeye düşüyordu ve bildirimdeki
+    haberleri yüzlerce makale arasında bulmak zordu. Bildirim, gönderim damgasını
+    (batch_at) taşıyor; burada o damgayla tam olarak aynı parti geri veriliyor.
+    """
+    rule = _own_rule_or_404(db, rule_id, current_user.id)
+
+    stamp = _parse_stamp(at)
+    if stamp is None:
+        raise HTTPException(status_code=400, detail="Geçersiz zaman damgası.")
+
+    rows = (
+        db.query(models.RssSeenArticle)
+        .filter(
+            models.RssSeenArticle.rule_id == rule.id,
+            models.RssSeenArticle.notified_at == stamp,
+        )
+        .order_by(models.RssSeenArticle.published.desc().nulls_last())
+        .all()
+    )
+    return {
+        "rule_id": rule.id,
+        "rule_name": rule.name,
+        "list_id": rule.list_id,
+        "count": len(rows),
+        # Alan adları canlı RSS makaleleriyle aynı → mobilde aynı kart bileşeni
+        # ve makale detayı (podcast oluşturma dahil) değişmeden çalışır.
+        "articles": [
+            {
+                "id": r.id,
+                "title": r.title,
+                "link": r.link,
+                "summary": r.summary,
+                "feed_title": r.feed_title,
+                "feed_url": r.feed_url,
+                "published": r.published,
+            }
+            for r in rows
+        ],
+    }
 
 
 @router.get("/notified-articles/{article_id}")

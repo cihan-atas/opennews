@@ -502,8 +502,13 @@ def _in_quiet_hours(user_id: int) -> bool:
     return now_minutes >= start_minutes or now_minutes < end_minutes   # ör. 23:00-08:00
 
 
-def _send_rule_notification(db, rule, new_rows: list) -> None:
-    """Kuralın gruplama tercihine göre bildirim(ler)i gönderir."""
+def _send_rule_notification(db, rule, new_rows: list, batch_stamp) -> None:
+    """Kuralın gruplama tercihine göre bildirim(ler)i gönderir.
+
+    batch_stamp: bu partideki tüm satırlara yazılacak notified_at. Özet
+    bildirimine tıklanınca partinin makaleleri bu damgayla geri bulunur
+    (bkz. GET /rss-reader/notification-batch/{rule_id}).
+    """
     tokens = [t.token for t in db.query(models.PushToken).filter(
         models.PushToken.user_id == rule.user_id).all()]
     if not tokens:
@@ -511,12 +516,16 @@ def _send_rule_notification(db, rule, new_rows: list) -> None:
         return
 
     list_name = rule.rss_list.name
+    # Kullanıcı birden fazla kural kurabildiği için hangisinin tetiklendiği
+    # bildirimden anlaşılmalı — başlıkta kuralın kendi adı geçiyor.
+    rule_name = rule.name or list_name
 
     if rule.grouping == "individual":
         for row in new_rows[:MAX_INDIVIDUAL_PER_RUN]:
+            feed = row.feed_title or list_name
             push_service.send(
                 tokens,
-                title=f"📡 {row.feed_title or list_name}",
+                title=f"📡 {rule_name} · {feed}"[:100],
                 body=row.title[:120],
                 data={"type": "rss_article", "article_id": row.id,
                       "list_id": rule.list_id, "rule_id": rule.id},
@@ -527,9 +536,16 @@ def _send_rule_notification(db, rule, new_rows: list) -> None:
         first = new_rows[0].title[:100] if new_rows else ""
         push_service.send(
             tokens,
-            title=f"📡 {list_name}: {count} yeni haber",
+            title=f"📡 {rule_name}: {count} yeni haber"[:100],
             body=first,
-            data={"type": "rss_digest", "list_id": rule.list_id, "rule_id": rule.id},
+            data={
+                "type": "rss_digest",
+                "list_id": rule.list_id,
+                "rule_id": rule.id,
+                # Tıklanınca tam olarak bu partinin makaleleri açılsın diye.
+                "batch_at": batch_stamp.isoformat(),
+                "count": count,
+            },
             badge=count,
         )
         print(f"[Bildirim] Kural {rule.id}: {count} haber tek özette gönderildi.")
@@ -667,8 +683,10 @@ def evaluate_rss_notifications_task():
                     ).order_by(models.RssSeenArticle.published.desc().nulls_last()).all()
 
                     if pending:
-                        _send_rule_notification(db, rule, pending)
+                        # Damga gönderimden ÖNCE üretilir: özet bildirimi bu
+                        # damgayı taşır, tıklanınca parti onunla geri bulunur.
                         stamp = datetime.now(_tz.utc)
+                        _send_rule_notification(db, rule, pending, stamp)
                         for row in pending:
                             row.notified_at = stamp
                         notified += 1
