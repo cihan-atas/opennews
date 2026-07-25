@@ -7,7 +7,7 @@ from utils import get_embedding, embeddings_enabled
 import services.ai as ai_service
 from worker import run_scraper_task, process_bulletin_tts_task
 from datetime import datetime, timezone, timedelta
-from sqlalchemy import func
+from sqlalchemy import func, case
 import logging
 
 logger = logging.getLogger(__name__)
@@ -124,7 +124,24 @@ def get_news(
             )
     else:
         total_count = query.count()
-        items = query.order_by(models.News.published_at.desc().nullslast(), models.News.created_at.desc()).offset((page - 1) * size).limit(size).all()
+        order_by = [models.News.published_at.desc().nullslast(), models.News.created_at.desc()]
+
+        # Birden fazla kategori seçiliyken saf tarih sıralaması, çok yayın yapan
+        # kategorinin listeyi doldurmasına yol açıyor (ör. Oyun günde onlarca,
+        # Siber Güvenlik günde birkaç → ikincisi hiç görünmüyor). Her kategoriden
+        # sırayla alarak adil karıştırıyoruz: en yeni A, en yeni B, ikinci A…
+        if len(selected_ids) > 1:
+            whens = []
+            for cid in selected_ids:
+                whens.append((models.News.category_id.in_(_resolve_category_ids(db, cid)), cid))
+            rank = func.row_number().over(
+                partition_by=case(*whens, else_=0),
+                order_by=[models.News.published_at.desc().nullslast(),
+                          models.News.created_at.desc()],
+            )
+            order_by = [rank] + order_by
+
+        items = query.order_by(*order_by).offset((page - 1) * size).limit(size).all()
 
     return {
         "items": items,

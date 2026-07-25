@@ -635,9 +635,35 @@ export default function RssReaderScreen({ route }) {
     });
   };
 
+  /**
+   * Birden fazla besleme seçiliyken sırayla her kaynaktan bir yazı alır:
+   * en yeni A, en yeni B, ikinci A, ikinci B…
+   *
+   * Saf tarih sıralamasında çok yayın yapan kaynak listeyi dolduruyordu:
+   * The Hacker News (günde ~10) + Krebs (haftada ~1) seçilince ilk 25 yazının
+   * 25'i de Hacker News oluyordu, Krebs hiç görünmüyordu.
+   */
+  const interleaveByFeed = (list) => {
+    const buckets = new Map();
+    for (const a of list) {
+      const key = a.feed_url || a.feed_title || '?';
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(a);
+    }
+    const queues = [...buckets.values()];   // her kova zaten tarihe göre sıralı
+    const out = [];
+    for (let i = 0; out.length < list.length; i++) {
+      for (const q of queues) if (i < q.length) out.push(q[i]);
+    }
+    return out;
+  };
+
   const filteredArticles = useMemo(() => {
     let r = articles;
-    if (activeFeedFilters.length) r = r.filter((a) => activeFeedFilters.includes(a.feed_url));
+    if (activeFeedFilters.length) {
+      r = r.filter((a) => activeFeedFilters.includes(a.feed_url));
+      if (activeFeedFilters.length > 1) r = interleaveByFeed(r);
+    }
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.toLowerCase();
       r = r.filter((a) => a.title?.toLowerCase().includes(q) || a.feed_title?.toLowerCase().includes(q));
