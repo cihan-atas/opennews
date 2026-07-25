@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, ForeignKey, Table
+from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, ForeignKey, Table, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -262,3 +262,86 @@ class UserSetting(Base):
     value = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
+
+# ==========================================
+# RSS BİLDİRİM KURALLARI (BYOK'tan bağımsız — kullanıcı başına, liste başına)
+# ==========================================
+
+class RssNotificationRule(Base):
+    """Bir RSS listesi için bildirim kuralı.
+
+    Bir listeye birden fazla kural bağlanabilir (ör. "kritik açıklar — hemen"
+    ve "günlük özet — sabah 1 kez"). Değerlendirme worker'da yapılır:
+    bkz. worker.py → evaluate_rss_notifications_task.
+    """
+    __tablename__ = "rss_notification_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    list_id = Column(Integer, ForeignKey("user_rss_lists.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+
+    # "all" → listedeki tüm beslemeler | "selected" → rule_feeds tablosundakiler
+    scope = Column(String, nullable=False, default="all")
+    # "immediate" → IMMEDIATE_INTERVAL_MINUTES ile yoklanır | "interval" → interval_minutes
+    mode = Column(String, nullable=False, default="immediate")
+    interval_minutes = Column(Integer, nullable=True)
+    # "digest" → tek özet bildirim | "individual" → makale başına bildirim
+    grouping = Column(String, nullable=False, default="digest")
+
+    last_checked_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+    rss_list = relationship("UserRssList")
+    feeds = relationship("RssNotificationRuleFeed", cascade="all, delete-orphan",
+                         back_populates="rule")
+    seen_articles = relationship("RssSeenArticle", cascade="all, delete-orphan",
+                                 back_populates="rule")
+
+
+class RssNotificationRuleFeed(Base):
+    """scope='selected' olan kuralın kapsadığı beslemeler."""
+    __tablename__ = "rss_notification_rule_feeds"
+
+    rule_id = Column(Integer, ForeignKey("rss_notification_rules.id", ondelete="CASCADE"),
+                     primary_key=True)
+    feed_id = Column(Integer, ForeignKey("user_rss_feeds.id", ondelete="CASCADE"),
+                     primary_key=True)
+
+    rule = relationship("RssNotificationRule", back_populates="feeds")
+    feed = relationship("UserRssFeed")
+
+
+class RssSeenArticle(Base):
+    """Kural bazında görülmüş makale izi.
+
+    İki işi birden yapar:
+      1. Tekilleştirme — aynı makale için iki kez bildirim gitmesin.
+      2. Bildirime tıklanınca makaleyi açabilmek (RSS makaleleri DB'de tutulmuyor,
+         her istekte canlı çekiliyor — bkz. services/rss.fetch_feed).
+
+    Alan adları SavedRssArticle ile bilerek aynı; mobilde aynı makale kartı
+    bileşeni yeniden kullanılabilsin diye.
+    """
+    __tablename__ = "rss_seen_articles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rule_id = Column(Integer, ForeignKey("rss_notification_rules.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    link_hash = Column(String, nullable=False, index=True)   # sha1(link)
+    link = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    summary = Column(Text, nullable=True)
+    feed_title = Column(String, nullable=True)
+    feed_url = Column(String, nullable=True)
+    published = Column(String, nullable=True)
+    seen_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    notified_at = Column(DateTime(timezone=True), nullable=True)
+
+    rule = relationship("RssNotificationRule", back_populates="seen_articles")
+
+    __table_args__ = (
+        UniqueConstraint("rule_id", "link_hash", name="uq_rss_seen_rule_link"),
+    )

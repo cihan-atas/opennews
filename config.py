@@ -81,6 +81,13 @@ class Settings(BaseSettings):
     # Edge TTS (TTS_PROVIDER=edge için)
     EDGE_TTS_VOICE: str = "tr-TR-EmelNeural"
 
+    # Bildirim sessiz saatleri — RSS bildirim kuralları bu aralıkta gönderim yapmaz.
+    # Biriken haberler aralık bitince tek özet olarak gider (bkz. worker._in_quiet_hours).
+    # Kullanıcı Ayarlar → Bildirimler'den kendi değerini girebilir (BYOK deseni).
+    QUIET_HOURS_ENABLED: str = "true"
+    QUIET_HOURS_START: str = "23:00"
+    QUIET_HOURS_END: str = "08:00"
+
     # Amazon Polly (TTS_PROVIDER=polly için)
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""

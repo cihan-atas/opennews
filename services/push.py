@@ -53,5 +53,40 @@ def send(
             )
             resp.raise_for_status()
             logger.info("[Push] %d bildirim gönderildi.", len(batch))
+            _drop_dead_tokens(resp.json(), [m["to"] for m in batch])
         except Exception as exc:
             logger.warning("[Push] Gönderim hatası: %s", exc)
+
+
+def _drop_dead_tokens(payload: dict, sent_to: list[str]) -> None:
+    """Expo 'DeviceNotRegistered' dönen token'ları siler.
+
+    Uygulama kaldırıldığında veya token yenilendiğinde eskisi ölür; temizlenmezse
+    her turda boşuna gönderim denenir ve tablo çöple dolar.
+    """
+    try:
+        results = (payload or {}).get("data") or []
+        dead = [
+            sent_to[i]
+            for i, item in enumerate(results)
+            if i < len(sent_to)
+            and isinstance(item, dict)
+            and item.get("status") == "error"
+            and (item.get("details") or {}).get("error") == "DeviceNotRegistered"
+        ]
+        if not dead:
+            return
+
+        from database import SessionLocal
+        import models
+        db = SessionLocal()
+        try:
+            removed = db.query(models.PushToken).filter(
+                models.PushToken.token.in_(dead)
+            ).delete(synchronize_session=False)
+            db.commit()
+            logger.info("[Push] %d geçersiz token silindi.", removed)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("[Push] Ölü token temizliği başarısız: %s", exc)

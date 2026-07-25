@@ -4,20 +4,13 @@ from typing import Optional
 import models
 from dependencies import db_dependency, user_dependency
 from sqlalchemy.exc import IntegrityError
-import feedparser
 import concurrent.futures
 from datetime import datetime, timezone
-from worker import process_rss_article_tts_task
+from worker import process_rss_article_tts_task, baseline_rss_rule_task
 import services.ai as ai_service
+import services.rss as rss_service
 
 router = APIRouter(prefix="/rss-reader", tags=["RSS Reader"])
-
-# Bazı yayıncılar (Cloudflare vb.) feedparser'ın varsayılan User-Agent'ını
-# bloklar ve boş besleme döndürür. Gerçek bir tarayıcı UA'sı ile istek atıyoruz.
-FEED_USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
 
 
 class ListCreate(BaseModel):
@@ -50,27 +43,9 @@ class SaveArticleRequest(BaseModel):
 
 
 def _fetch_feed(url: str, feed_title: str) -> list[dict]:
-    """Fetch and parse a single RSS feed, return article dicts."""
-    try:
-        parsed = feedparser.parse(url, agent=FEED_USER_AGENT)
-        articles = []
-        for entry in parsed.entries[:100]:
-            pub = entry.get("published_parsed") or entry.get("updated_parsed")
-            if pub:
-                dt = datetime(*pub[:6], tzinfo=timezone.utc).isoformat()
-            else:
-                dt = None
-            articles.append({
-                "title": entry.get("title", "Başlık yok"),
-                "link": entry.get("link", ""),
-                "summary": entry.get("summary", ""),
-                "published": dt,
-                "feed_title": feed_title or parsed.feed.get("title", url),
-                "feed_url": url,
-            })
-        return articles
-    except Exception:
-        return []
+    """Tek bir RSS beslemesini çeker. Gövde services/rss.py'ye taşındı —
+    worker de aynı fonksiyonu kullanıyor (bkz. evaluate_rss_notifications)."""
+    return rss_service.fetch_feed(url, feed_title)
 
 
 # ── List CRUD ──────────────────────────────────────────────────────────────────
@@ -150,12 +125,7 @@ def add_feed(list_id: int, body: FeedAdd, db: db_dependency, current_user: user_
         raise HTTPException(status_code=409, detail="Bu kaynak zaten listede.")
 
     # Auto-detect feed title
-    feed_title = None
-    try:
-        parsed = feedparser.parse(url, agent=FEED_USER_AGENT)
-        feed_title = parsed.feed.get("title") or None
-    except Exception:
-        pass
+    feed_title = rss_service.fetch_feed_title(url)
 
     feed = models.UserRssFeed(list_id=list_id, url=url, title=feed_title)
     db.add(feed)
@@ -358,3 +328,236 @@ def check_rss_podcast(title: str, db: db_dependency, current_user: user_dependen
     if not podcast:
         raise HTTPException(status_code=404, detail="Podcast henüz hazır değil.")
     return {"podcast_id": podcast.id, "audio_url": podcast.audio_url}
+
+
+# ── Bildirim kuralları ─────────────────────────────────────────────────────────
+#
+# Bir RSS listesine birden fazla kural bağlanabilir. Değerlendirme worker'da,
+# Celery Beat'in 5 dakikalık tick'inde yapılır (worker.evaluate_rss_notifications).
+
+# "Hemen" modunda beslemeler bu sıklıkta yoklanır. Gerçek push yok — RSS'i biz
+# yokluyoruz; 15 dk sunucuya ve yayıncılara saygılı bir denge.
+IMMEDIATE_INTERVAL_MINUTES = 15
+ALLOWED_INTERVALS = (30, 60, 180, 360, 1440)
+VALID_SCOPES = ("all", "selected")
+VALID_MODES = ("immediate", "interval")
+VALID_GROUPINGS = ("digest", "individual")
+
+
+class NotificationRuleCreate(BaseModel):
+    name: str
+    scope: str = "all"                          # all | selected
+    feed_ids: Optional[list[int]] = None        # scope="selected" ise zorunlu
+    mode: str = "immediate"                     # immediate | interval
+    interval_minutes: Optional[int] = None      # mode="interval" ise zorunlu
+    grouping: str = "digest"                    # digest | individual
+    enabled: bool = True
+
+
+class NotificationRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    scope: Optional[str] = None
+    feed_ids: Optional[list[int]] = None
+    mode: Optional[str] = None
+    interval_minutes: Optional[int] = None
+    grouping: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+def _validate_rule(scope: str, mode: str, grouping: str,
+                   interval_minutes: Optional[int], feed_ids: Optional[list[int]]) -> None:
+    if scope not in VALID_SCOPES:
+        raise HTTPException(status_code=400, detail="Geçersiz kapsam.")
+    if mode not in VALID_MODES:
+        raise HTTPException(status_code=400, detail="Geçersiz zamanlama modu.")
+    if grouping not in VALID_GROUPINGS:
+        raise HTTPException(status_code=400, detail="Geçersiz gruplama.")
+    if scope == "selected" and not feed_ids:
+        raise HTTPException(status_code=400, detail="En az bir besleme seçmelisin.")
+    if mode == "interval" and interval_minutes not in ALLOWED_INTERVALS:
+        raise HTTPException(status_code=400, detail="Geçersiz aralık.")
+
+
+def _own_list_or_404(db, list_id: int, user_id: int) -> models.UserRssList:
+    lst = db.query(models.UserRssList).filter(
+        models.UserRssList.id == list_id,
+        models.UserRssList.user_id == user_id,
+    ).first()
+    if not lst:
+        raise HTTPException(status_code=404, detail="Liste bulunamadı.")
+    return lst
+
+
+def _own_rule_or_404(db, rule_id: int, user_id: int) -> models.RssNotificationRule:
+    rule = db.query(models.RssNotificationRule).filter(
+        models.RssNotificationRule.id == rule_id,
+        models.RssNotificationRule.user_id == user_id,
+    ).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Bildirim kuralı bulunamadı.")
+    return rule
+
+
+def _resolve_feed_ids(lst: models.UserRssList, feed_ids: Optional[list[int]]) -> list[int]:
+    """Seçilen beslemelerin gerçekten bu listeye ait olduğunu doğrular.
+
+    Kural OLUŞTURULMADAN ÖNCE çağrılmalı — aksi halde doğrulama patlasa bile
+    kural satırı commit edilmiş olur ve kullanıcıda hiç çalışmayan ölü bir kural kalır.
+    """
+    valid_ids = {f.id for f in lst.feeds}
+    chosen = [fid for fid in (feed_ids or []) if fid in valid_ids]
+    if not chosen:
+        raise HTTPException(status_code=400, detail="Seçilen beslemeler bu listeye ait değil.")
+    return chosen
+
+
+def _set_rule_feeds(db, rule: models.RssNotificationRule, chosen: list[int]) -> None:
+    """Kuralın kapsadığı beslemeleri değiştirir (id'ler doğrulanmış olmalı)."""
+    db.query(models.RssNotificationRuleFeed).filter(
+        models.RssNotificationRuleFeed.rule_id == rule.id
+    ).delete(synchronize_session=False)
+    for fid in chosen:
+        db.add(models.RssNotificationRuleFeed(rule_id=rule.id, feed_id=fid))
+
+
+def _serialize_rule(rule: models.RssNotificationRule) -> dict:
+    effective = (IMMEDIATE_INTERVAL_MINUTES if rule.mode == "immediate"
+                 else rule.interval_minutes)
+    return {
+        "id": rule.id,
+        "list_id": rule.list_id,
+        "name": rule.name,
+        "enabled": rule.enabled,
+        "scope": rule.scope,
+        "feed_ids": [rf.feed_id for rf in rule.feeds],
+        "mode": rule.mode,
+        "interval_minutes": rule.interval_minutes,
+        "effective_interval_minutes": effective,
+        "grouping": rule.grouping,
+        "last_checked_at": rule.last_checked_at.isoformat() if rule.last_checked_at else None,
+        # last_checked_at NULL → baseline görevi henüz bitmedi, kural değerlendirilmez.
+        "ready": rule.last_checked_at is not None,
+    }
+
+
+@router.get("/lists/{list_id}/notification-rules")
+def get_notification_rules(list_id: int, db: db_dependency, current_user: user_dependency):
+    _own_list_or_404(db, list_id, current_user.id)
+    rules = db.query(models.RssNotificationRule).filter(
+        models.RssNotificationRule.list_id == list_id,
+        models.RssNotificationRule.user_id == current_user.id,
+    ).order_by(models.RssNotificationRule.created_at).all()
+    return [_serialize_rule(r) for r in rules]
+
+
+@router.post("/lists/{list_id}/notification-rules", status_code=status.HTTP_201_CREATED)
+def create_notification_rule(list_id: int, body: NotificationRuleCreate,
+                             db: db_dependency, current_user: user_dependency):
+    lst = _own_list_or_404(db, list_id, current_user.id)
+    if not lst.feeds:
+        raise HTTPException(status_code=400, detail="Bu listede besleme yok.")
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="Kural adı boş olamaz.")
+    _validate_rule(body.scope, body.mode, body.grouping, body.interval_minutes, body.feed_ids)
+
+    # Besleme sahipliği kural yazılmadan ÖNCE doğrulanır.
+    chosen_feeds = _resolve_feed_ids(lst, body.feed_ids) if body.scope == "selected" else []
+
+    rule = models.RssNotificationRule(
+        user_id=current_user.id,
+        list_id=list_id,
+        name=body.name.strip(),
+        enabled=body.enabled,
+        scope=body.scope,
+        mode=body.mode,
+        interval_minutes=body.interval_minutes if body.mode == "interval" else None,
+        grouping=body.grouping,
+        last_checked_at=None,       # baseline bitene kadar değerlendirilmez
+    )
+    db.add(rule)
+    db.commit()
+    db.refresh(rule)
+
+    if chosen_feeds:
+        _set_rule_feeds(db, rule, chosen_feeds)
+        db.commit()
+
+    # Baseline'ı arka planda al: mevcut makaleler "görüldü" işaretlenir ama bildirim
+    # gönderilmez. Senkron yapsak 10 beslemeyi çekmek isteği ~20 sn bekletirdi.
+    baseline_rss_rule_task.delay(rule.id)
+
+    db.refresh(rule)
+    return _serialize_rule(rule)
+
+
+@router.patch("/notification-rules/{rule_id}")
+def update_notification_rule(rule_id: int, body: NotificationRuleUpdate,
+                             db: db_dependency, current_user: user_dependency):
+    rule = _own_rule_or_404(db, rule_id, current_user.id)
+
+    scope = body.scope if body.scope is not None else rule.scope
+    mode = body.mode if body.mode is not None else rule.mode
+    grouping = body.grouping if body.grouping is not None else rule.grouping
+    interval = body.interval_minutes if body.interval_minutes is not None else rule.interval_minutes
+    feed_ids = body.feed_ids if body.feed_ids is not None else [rf.feed_id for rf in rule.feeds]
+
+    _validate_rule(scope, mode, grouping, interval, feed_ids)
+    chosen_feeds = _resolve_feed_ids(rule.rss_list, feed_ids) if scope == "selected" else []
+
+    if body.name is not None:
+        if not body.name.strip():
+            raise HTTPException(status_code=400, detail="Kural adı boş olamaz.")
+        rule.name = body.name.strip()
+    if body.enabled is not None:
+        rule.enabled = body.enabled
+
+    rule.scope = scope
+    rule.mode = mode
+    rule.grouping = grouping
+    rule.interval_minutes = interval if mode == "interval" else None
+
+    if chosen_feeds:
+        _set_rule_feeds(db, rule, chosen_feeds)
+    else:
+        db.query(models.RssNotificationRuleFeed).filter(
+            models.RssNotificationRuleFeed.rule_id == rule.id
+        ).delete(synchronize_session=False)
+
+    db.commit()
+    db.refresh(rule)
+    return _serialize_rule(rule)
+
+
+@router.delete("/notification-rules/{rule_id}", status_code=status.HTTP_200_OK)
+def delete_notification_rule(rule_id: int, db: db_dependency, current_user: user_dependency):
+    rule = _own_rule_or_404(db, rule_id, current_user.id)
+    db.delete(rule)          # rule_feeds ve seen_articles CASCADE ile gider
+    db.commit()
+    return {"message": "Bildirim kuralı silindi."}
+
+
+@router.get("/notified-articles/{article_id}")
+def get_notified_article(article_id: int, db: db_dependency, current_user: user_dependency):
+    """Bildirime tıklanınca açılacak makale. RSS makaleleri DB'de tutulmadığı için
+    bildirim anındaki anlık görüntü rss_seen_articles'tan okunur."""
+    article = (
+        db.query(models.RssSeenArticle)
+        .join(models.RssNotificationRule)
+        .filter(
+            models.RssSeenArticle.id == article_id,
+            models.RssNotificationRule.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not article:
+        raise HTTPException(status_code=404, detail="Makale bulunamadı.")
+    return {
+        "id": article.id,
+        "title": article.title,
+        "link": article.link,
+        "summary": article.summary,
+        "feed_title": article.feed_title,
+        "feed_url": article.feed_url,
+        "published": article.published,
+        "list_id": article.rule.list_id,
+    }

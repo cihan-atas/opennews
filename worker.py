@@ -7,10 +7,12 @@ from utils import upload_to_gcs, get_embedding, embeddings_enabled, delete_from_
 import services.ai as ai_service
 import services.tts as tts_service
 import services.push as push_service
+import services.rss as rss_service
 from services import settings_store
 from database import SessionLocal
 import models
 import time
+from datetime import datetime, timedelta, timezone as _tz
 
 CELERY_BROKER_URL = settings.CELERY_BROKER_URL
 
@@ -23,6 +25,22 @@ celery_app.conf.update(
     timezone='UTC',
     enable_utc=True,
 )
+
+# Celery Beat — newsapp-beat.service tarafından çalıştırılır.
+# Tick 5 dakikada bir; hangi kuralın sırası geldiğine görev kendisi karar verir
+# (kural başına aralık farklı olduğu için beat'e tek tek yazmıyoruz).
+celery_app.conf.beat_schedule = {
+    "evaluate-rss-notifications": {
+        "task": "evaluate_rss_notifications",
+        "schedule": 300.0,
+        "options": {"queue": "notify_queue"},
+    },
+    "prune-rss-seen-articles": {
+        "task": "prune_rss_seen_articles",
+        "schedule": 86400.0,
+        "options": {"queue": "notify_queue"},
+    },
+}
 
 # Podcast uzunluk seçenekleri: kullanıcının seçtiği süreye göre senaryo cümle aralığı.
 # (Polly Burcu ~140 kelime/dk, Türkçe cümle ~13-15 kelime varsayımıyla.)
@@ -422,3 +440,261 @@ def run_scraper_task():
         return {"status": "success", **result}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RSS BİLDİRİM KURALLARI
+# ══════════════════════════════════════════════════════════════════════════════
+
+IMMEDIATE_INTERVAL_MINUTES = 15      # routers/rss_reader.py ile aynı olmalı
+MAX_INDIVIDUAL_PER_RUN = 5           # bozuk besleme telefonu boğmasın
+SEEN_RETENTION_DAYS = 30
+
+
+def _rule_feeds(rule) -> list:
+    """Kuralın kapsadığı beslemeler: scope='all' → listenin tümü,
+    scope='selected' → yalnızca seçilenler."""
+    if rule.scope == "selected":
+        selected = {rf.feed_id for rf in rule.feeds}
+        return [f for f in rule.rss_list.feeds if f.id in selected]
+    return list(rule.rss_list.feeds)
+
+
+def _parse_hhmm(value: str, fallback: str) -> tuple:
+    """'23:00' → (23, 0). Bozuk girdide fallback'e düşer."""
+    try:
+        hh, mm = str(value).strip().split(":")
+        hh, mm = int(hh), int(mm)
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            return hh, mm
+    except Exception:
+        pass
+    hh, mm = fallback.split(":")
+    return int(hh), int(mm)
+
+
+def _in_quiet_hours(user_id: int) -> bool:
+    """Kullanıcının sessiz saat aralığında mıyız?
+
+    Ayarlar kullanıcı bazında (Ayarlar → Bildirimler), settings_store üzerinden
+    okunur; kullanıcı girmemişse config.py varsayılanı kullanılır.
+    Gece yarısını aşan aralıklar (23:00-08:00) desteklenir.
+    """
+    with settings_store.user_context(user_id):
+        enabled = str(settings_store.settings.QUIET_HOURS_ENABLED).lower()
+        if enabled in ("false", "0", "hayır", "kapalı", "off", "none"):
+            return False
+        start_raw = settings_store.settings.QUIET_HOURS_START
+        end_raw = settings_store.settings.QUIET_HOURS_END
+
+    sh, sm = _parse_hhmm(start_raw, "23:00")
+    eh, em = _parse_hhmm(end_raw, "08:00")
+
+    now = datetime.now().time()          # sunucu yerel saati (Europe/Istanbul)
+    start_minutes = sh * 60 + sm
+    end_minutes = eh * 60 + em
+    now_minutes = now.hour * 60 + now.minute
+
+    if start_minutes == end_minutes:
+        return False
+    if start_minutes < end_minutes:      # ör. 01:00-06:00
+        return start_minutes <= now_minutes < end_minutes
+    return now_minutes >= start_minutes or now_minutes < end_minutes   # ör. 23:00-08:00
+
+
+def _send_rule_notification(db, rule, new_rows: list) -> None:
+    """Kuralın gruplama tercihine göre bildirim(ler)i gönderir."""
+    tokens = [t.token for t in db.query(models.PushToken).filter(
+        models.PushToken.user_id == rule.user_id).all()]
+    if not tokens:
+        print(f"[Bildirim] Kural {rule.id}: kayıtlı cihaz yok, atlanıyor.")
+        return
+
+    list_name = rule.rss_list.name
+
+    if rule.grouping == "individual":
+        for row in new_rows[:MAX_INDIVIDUAL_PER_RUN]:
+            push_service.send(
+                tokens,
+                title=f"📡 {row.feed_title or list_name}",
+                body=row.title[:120],
+                data={"type": "rss_article", "article_id": row.id,
+                      "list_id": rule.list_id, "rule_id": rule.id},
+            )
+        print(f"[Bildirim] Kural {rule.id}: {min(len(new_rows), MAX_INDIVIDUAL_PER_RUN)} ayrı bildirim.")
+    else:
+        count = len(new_rows)
+        first = new_rows[0].title[:100] if new_rows else ""
+        push_service.send(
+            tokens,
+            title=f"📡 {list_name}: {count} yeni haber",
+            body=first,
+            data={"type": "rss_digest", "list_id": rule.list_id, "rule_id": rule.id},
+            badge=count,
+        )
+        print(f"[Bildirim] Kural {rule.id}: {count} haber tek özette gönderildi.")
+
+
+def _collect_articles(rule) -> list:
+    """Kuralın beslemelerinden makaleleri toplar (Redis cache'li)."""
+    articles = []
+    for feed in _rule_feeds(rule):
+        articles.extend(rss_service.fetch_feed(feed.url, feed.title))
+    return articles
+
+
+def _store_new_articles(db, rule, articles: list, mark_notified: bool):
+    """Görülmemiş makaleleri rss_seen_articles'a yazar ve yeni satırları döner.
+
+    mark_notified=True → satır "kapanmış" sayılır, bildirim kuyruğuna girmez.
+    Baseline bunu kullanır: kural kurulduğu andaki mevcut arşiv bildirilmez.
+    mark_notified=False → notified_at NULL kalır, bir sonraki turda bildirilir
+    (sessiz saatte biriken haberler bu şekilde bekletilir).
+    """
+    if not articles:
+        return []
+
+    hashes = {}
+    for a in articles:
+        link = (a.get("link") or "").strip()
+        if not link:
+            continue
+        hashes.setdefault(rss_service.link_hash(link), a)
+
+    if not hashes:
+        return []
+
+    known = {
+        h for (h,) in db.query(models.RssSeenArticle.link_hash).filter(
+            models.RssSeenArticle.rule_id == rule.id,
+            models.RssSeenArticle.link_hash.in_(list(hashes.keys())),
+        ).all()
+    }
+
+    now = datetime.now(_tz.utc)
+    fresh = []
+    for h, a in hashes.items():
+        if h in known:
+            continue
+        row = models.RssSeenArticle(
+            rule_id=rule.id,
+            link_hash=h,
+            link=a.get("link", ""),
+            title=a.get("title") or "Başlık yok",
+            summary=a.get("summary"),
+            feed_title=a.get("feed_title"),
+            feed_url=a.get("feed_url"),
+            published=a.get("published"),
+            seen_at=now,
+            notified_at=now if mark_notified else None,
+        )
+        db.add(row)
+        fresh.append(row)
+
+    db.commit()
+    for row in fresh:
+        db.refresh(row)
+
+    # En yeni önce — özet bildiriminde ilk başlık en tazesi olsun.
+    fresh.sort(key=lambda r: r.published or "", reverse=True)
+    return fresh
+
+
+@celery_app.task(name="baseline_rss_rule", queue="notify_queue")
+def baseline_rss_rule_task(rule_id: int):
+    """Yeni kural için başlangıç durumu: mevcut makaleler 'görüldü' işaretlenir
+    ama BİLDİRİM GÖNDERİLMEZ. Olmasaydı kullanıcı ilk turda yüzlerce eski
+    makalenin bildirimini yerdi.
+
+    last_checked_at bu görev bitince dolar; evaluate yalnızca dolu olanları işler.
+    """
+    db = SessionLocal()
+    try:
+        rule = db.query(models.RssNotificationRule).filter(
+            models.RssNotificationRule.id == rule_id).first()
+        if not rule:
+            return {"status": "error", "message": f"Kural {rule_id} bulunamadı"}
+
+        articles = _collect_articles(rule)
+        # mark_notified=True: bunlar kural kurulmadan önce zaten yayınlanmış
+        # makaleler. NULL bıraksaydık ilk turda hepsi "bekleyen" sayılır ve
+        # kullanıcı yüzlerce eski haberin bildirimini yerdi.
+        rows = _store_new_articles(db, rule, articles, mark_notified=True)
+        rule.last_checked_at = datetime.now(_tz.utc)
+        db.commit()
+        print(f"[Bildirim] Kural {rule.id} baseline: {len(rows)} makale işaretlendi.")
+        return {"status": "success", "baseline": len(rows)}
+    except Exception as e:
+        db.rollback()
+        print(f"[Bildirim] Baseline hatası (kural {rule_id}): {e}")
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+
+
+@celery_app.task(name="evaluate_rss_notifications", queue="notify_queue")
+def evaluate_rss_notifications_task():
+    """Beat tarafından 5 dakikada bir çağrılır. Sırası gelen kuralları değerlendirir."""
+    db = SessionLocal()
+    checked = notified = 0
+    try:
+        rules = db.query(models.RssNotificationRule).filter(
+            models.RssNotificationRule.enabled.is_(True),
+            models.RssNotificationRule.last_checked_at.isnot(None),   # baseline bitmiş olmalı
+        ).all()
+
+        now = datetime.now(_tz.utc)
+        for rule in rules:
+            interval = (IMMEDIATE_INTERVAL_MINUTES if rule.mode == "immediate"
+                        else (rule.interval_minutes or IMMEDIATE_INTERVAL_MINUTES))
+            if rule.last_checked_at + timedelta(minutes=interval) > now:
+                continue      # sırası gelmedi
+
+            checked += 1
+            try:
+                articles = _collect_articles(rule)
+                quiet = _in_quiet_hours(rule.user_id)
+                # Sessiz saatte makaleler kaydedilir ama bildirilmez; notified_at
+                # NULL kalır, sessiz saat bitince aşağıdaki sorgu onları toplar.
+                new_rows = _store_new_articles(db, rule, articles, mark_notified=False)
+
+                if quiet:
+                    print(f"[Bildirim] Kural {rule.id}: sessiz saat, {len(new_rows)} haber bekletildi.")
+                else:
+                    pending = db.query(models.RssSeenArticle).filter(
+                        models.RssSeenArticle.rule_id == rule.id,
+                        models.RssSeenArticle.notified_at.is_(None),
+                    ).order_by(models.RssSeenArticle.published.desc().nulls_last()).all()
+
+                    if pending:
+                        _send_rule_notification(db, rule, pending)
+                        stamp = datetime.now(_tz.utc)
+                        for row in pending:
+                            row.notified_at = stamp
+                        notified += 1
+
+                rule.last_checked_at = datetime.now(_tz.utc)
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                print(f"[Bildirim] Kural {rule.id} değerlendirilemedi: {e}")
+
+        return {"status": "success", "checked": checked, "notified": notified}
+    finally:
+        db.close()
+
+
+@celery_app.task(name="prune_rss_seen_articles", queue="notify_queue")
+def prune_rss_seen_articles_task():
+    """Eski görülme kayıtlarını siler — tablo sınırsız büyümesin."""
+    db = SessionLocal()
+    try:
+        cutoff = datetime.now(_tz.utc) - timedelta(days=SEEN_RETENTION_DAYS)
+        deleted = db.query(models.RssSeenArticle).filter(
+            models.RssSeenArticle.seen_at < cutoff
+        ).delete(synchronize_session=False)
+        db.commit()
+        print(f"[Bildirim] {deleted} eski görülme kaydı silindi.")
+        return {"status": "success", "deleted": deleted}
+    finally:
+        db.close()

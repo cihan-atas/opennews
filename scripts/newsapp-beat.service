@@ -1,0 +1,14 @@
+[Unit]
+Description=NewsApp Celery Beat (RSS bildirim zamanlayıcı)
+After=network.target redis-server.service newsapp-worker.service
+Wants=redis-server.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/newsapp
+ExecStart=/home/ubuntu/newsapp/venv/bin/celery -A worker.celery_app beat --loglevel=info --schedule=/home/ubuntu/newsapp/.celerybeat-schedule
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

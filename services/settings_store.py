@@ -264,6 +264,28 @@ SETTINGS_SCHEMA = [
             {"key": "SMTP_FROM", "label": "Gönderen Adres (opsiyonel)", "type": "text"},
         ],
     },
+    {
+        "id": "notifications",
+        "title": "Bildirimler",
+        "icon": "🔔",
+        "required": False,
+        "note": "Sessiz saatlerde RSS bildirimi gönderilmez; biriken haberler aralık "
+                "bitince tek özet olarak gelir. Gece yarısını aşan aralık desteklenir "
+                "(ör. 23:00 → 08:00).",
+        "fields": [
+            {"key": "QUIET_HOURS_ENABLED", "label": "Sessiz Saatler", "type": "select",
+             "options": [
+                 {"value": "true", "label": "Açık"},
+                 {"value": "false", "label": "Kapalı"},
+             ]},
+            {"key": "QUIET_HOURS_START", "label": "Başlangıç (SS:DD)", "type": "text",
+             "help": "24 saat biçiminde, örn. 23:00",
+             "show_when": {"field": "QUIET_HOURS_ENABLED", "in": ["true"]}},
+            {"key": "QUIET_HOURS_END", "label": "Bitiş (SS:DD)", "type": "text",
+             "help": "24 saat biçiminde, örn. 08:00",
+             "show_when": {"field": "QUIET_HOURS_ENABLED", "in": ["true"]}},
+        ],
+    },
 ]
 
 # Anahtar başına "nasıl alınır?" bilgisi (adım + bağlantı). Tek kaynak; hem web
