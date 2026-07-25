@@ -1,8 +1,14 @@
 /**
  * Push bildirim yardımcıları.
  *
- * Expo Push API ücretsizdir — FCM/APNs routing dahil, ek credential gerekmez.
- * Android için ayrıca google-services.json gerekmez (Expo yönetimli build'lerde Expo kendi FCM projesini kullanır).
+ * Expo Push API ücretsizdir ve FCM/APNs'e yönlendirmeyi üstlenir.
+ *
+ * ANCAK Android'de kendi FCM projemiz gerekir (Expo Go'da gerekmez, APK'da gerekir):
+ *   - google-services.json → app.json'da expo.android.googleServicesFile
+ *     (istemci FCM'e kaydolup token alabilsin diye APK'ya gömülür)
+ *   - FCM V1 service account key → `eas credentials` ile Expo'ya yüklenir
+ *     (exp.host bizim adımıza FCM'e gönderebilsin diye)
+ * Eksikse token alınamaz: "Default FirebaseApp is not initialized".
  *
  * ÖNEMLİ: Push, Expo Go'da çalışmaz — development build ya da APK gerekir.
  */

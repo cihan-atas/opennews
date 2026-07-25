@@ -24,7 +24,7 @@ const hostFromUrl = (url) => {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
 };
 
-export default function RssReaderScreen() {
+export default function RssReaderScreen({ route }) {
   const insets = useSafeAreaInsets();
   const { setTrack } = usePlayer();
   const { toast, showToast } = useToast();
@@ -58,6 +58,13 @@ export default function RssReaderScreen() {
   const [activeTranslation, setActiveTranslation] = useState(null);
   const [translationCache, setTranslationCache] = useState({});
   const [translating, setTranslating] = useState(false);
+
+  // Bildirim kuralları — seçili listeye birden fazla kural bağlanabilir.
+  const [showNotifRules, setShowNotifRules] = useState(false);
+  const [notifRules, setNotifRules] = useState([]);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifSaving, setNotifSaving] = useState(false);
+  const [ruleForm, setRuleForm] = useState(null); // null = liste görünümü, obje = form
 
   const [showCommunity, setShowCommunity] = useState(false);
   const [communityFeeds, setCommunityFeeds] = useState([]);
@@ -130,6 +137,61 @@ export default function RssReaderScreen() {
     const t = setTimeout(() => setDebouncedSearch(searchTerm), 220);
     return () => clearTimeout(t);
   }, [searchTerm]);
+
+  // Liste değişince kuralları çek — araç çubuğundaki rozet modal açılmadan da doğru olsun.
+  useEffect(() => {
+    if (!selectedList) { setNotifRules([]); return; }
+    loadNotifRules(selectedList.id);
+    // loadNotifRules stabil değil ama yalnızca liste kimliğine bağlıyız.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedList?.id]);
+
+  const activeRuleCount = useMemo(
+    () => notifRules.filter((r) => r.enabled).length,
+    [notifRules],
+  );
+
+  // Bildirime tıklanınca App.js buraya notifArticleId / notifListId ile yönlendirir.
+  // Aynı bildirim iki kez işlenmesin diye son işlenen anahtar tutulur.
+  const handledNotifRef = useRef(null);
+  useEffect(() => {
+    const { notifArticleId, notifListId } = route?.params || {};
+    if (!notifArticleId && !notifListId) return;
+
+    const key = `${notifArticleId || ''}:${notifListId || ''}`;
+    if (handledNotifRef.current === key) return;
+    handledNotifRef.current = key;
+
+    // Listeyi seç (listeler henüz yüklenmediyse yüklenince bu effect tekrar çalışır)
+    if (notifListId && lists.length > 0) {
+      const target = lists.find((l) => l.id === notifListId);
+      if (target && target.id !== selectedList?.id) {
+        setSelectedList(target);
+        loadArticles(target.id);
+      }
+    }
+
+    if (!notifArticleId) return;
+
+    // Makale anlık görüntüsü sunucudan gelir — RSS makaleleri DB'de tutulmuyor,
+    // bildirim anındaki hali rss_seen_articles'ta saklanıyor.
+    (async () => {
+      try {
+        const res = await apiFetch(`/rss-reader/notified-articles/${notifArticleId}`);
+        if (!res.ok) throw new Error();
+        const a = await res.json();
+        setShowSaved(false);
+        setShowTrending(false);
+        setSelectedArticle({
+          title: a.title, link: a.link, summary: a.summary,
+          feed_title: a.feed_title, feed_url: a.feed_url, published: a.published,
+        });
+      } catch (_) {
+        showToast('Bildirimdeki makale açılamadı.', 'error');
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route?.params?.notifArticleId, route?.params?.notifListId, lists.length]);
 
   const fetchSaved = async () => {
     setLoadingSaved(true);
@@ -300,6 +362,97 @@ export default function RssReaderScreen() {
         loadArticles(selectedList.id);
       }
     } catch (_) { showToast('Kaldırılamadı.', 'error'); }
+  };
+
+  // ── Bildirim kuralları ───────────────────────────────────────────────────────
+
+  const EMPTY_RULE = {
+    id: null, name: '', scope: 'all', feed_ids: [],
+    mode: 'immediate', interval_minutes: 60, grouping: 'digest',
+  };
+
+  const loadNotifRules = async (listId) => {
+    setNotifLoading(true);
+    try {
+      const res = await apiFetch(`/rss-reader/lists/${listId}/notification-rules`);
+      if (!res.ok) throw new Error();
+      setNotifRules(await res.json());
+    } catch (_) {
+      showToast('Bildirim kuralları yüklenemedi.', 'error');
+      setNotifRules([]);
+    } finally { setNotifLoading(false); }
+  };
+
+  const openNotifRules = () => {
+    if (!selectedList) return;
+    setRuleForm(null);
+    setShowNotifRules(true);
+    loadNotifRules(selectedList.id);
+  };
+
+  const saveRule = async () => {
+    if (!ruleForm || !selectedList) return;
+    if (!ruleForm.name.trim()) { showToast('Kural adı gerekli.', 'error'); return; }
+    if (ruleForm.scope === 'selected' && ruleForm.feed_ids.length === 0) {
+      showToast('En az bir besleme seç.', 'error'); return;
+    }
+    setNotifSaving(true);
+    const payload = {
+      name: ruleForm.name.trim(),
+      scope: ruleForm.scope,
+      feed_ids: ruleForm.scope === 'selected' ? ruleForm.feed_ids : null,
+      mode: ruleForm.mode,
+      interval_minutes: ruleForm.mode === 'interval' ? ruleForm.interval_minutes : null,
+      grouping: ruleForm.grouping,
+    };
+    try {
+      const res = ruleForm.id
+        ? await apiFetch(`/rss-reader/notification-rules/${ruleForm.id}`, {
+            method: 'PATCH', body: JSON.stringify(payload) })
+        : await apiFetch(`/rss-reader/lists/${selectedList.id}/notification-rules`, {
+            method: 'POST', body: JSON.stringify(payload) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || '');
+      }
+      showToast(ruleForm.id ? 'Kural güncellendi.' : 'Kural eklendi.');
+      setRuleForm(null);
+      loadNotifRules(selectedList.id);
+    } catch (e) {
+      showToast(e?.message || 'Kaydedilemedi.', 'error');
+    } finally { setNotifSaving(false); }
+  };
+
+  const toggleRule = async (rule) => {
+    // İyimser güncelleme — anahtar anında tepki versin.
+    setNotifRules((p) => p.map((r) => (r.id === rule.id ? { ...r, enabled: !r.enabled } : r)));
+    try {
+      const res = await apiFetch(`/rss-reader/notification-rules/${rule.id}`, {
+        method: 'PATCH', body: JSON.stringify({ enabled: !rule.enabled }),
+      });
+      if (!res.ok) throw new Error();
+    } catch (_) {
+      setNotifRules((p) => p.map((r) => (r.id === rule.id ? { ...r, enabled: rule.enabled } : r)));
+      showToast('Değiştirilemedi.', 'error');
+    }
+  };
+
+  const deleteRule = async (ruleId) => {
+    try {
+      const res = await apiFetch(`/rss-reader/notification-rules/${ruleId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      setNotifRules((p) => p.filter((r) => r.id !== ruleId));
+      showToast('Kural silindi.');
+    } catch (_) { showToast('Silinemedi.', 'error'); }
+  };
+
+  // "Tüm beslemeler · 15 dk · tek özet" gibi tek satırlık okunur özet
+  const ruleSummary = (r) => {
+    const kapsam = r.scope === 'all' ? 'Tüm beslemeler' : `${r.feed_ids.length} besleme`;
+    const dk = r.effective_interval_minutes;
+    const sure = dk >= 1440 ? 'günde 1' : dk >= 60 ? `${dk / 60} saatte 1` : `${dk} dk`;
+    const grup = r.grouping === 'digest' ? 'tek özet' : 'her makale ayrı';
+    return `${kapsam} · ${sure} · ${grup}`;
   };
 
   const fetchCommunity = async () => {
@@ -534,6 +687,11 @@ export default function RssReaderScreen() {
             </Pressable>
             <Pressable onPress={() => { setShowCommunity(true); if (communityFeeds.length === 0) fetchCommunity(); }} style={[styles.toolBtn, { borderColor: 'rgba(99,102,241,0.3)' }]}>
               <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>🌐 Topluluk</Text>
+            </Pressable>
+            <Pressable onPress={openNotifRules} style={[styles.toolBtn, { borderColor: 'rgba(245,158,11,0.35)' }]}>
+              <Text style={{ color: '#fbbf24', fontWeight: '700' }}>
+                🔔 {activeRuleCount > 0 ? `${activeRuleCount} ` : ''}Bildirim
+              </Text>
             </Pressable>
           </View>
 
@@ -777,6 +935,163 @@ export default function RssReaderScreen() {
                   </Pressable>
                 </View>
               ))}
+            </ScrollView>
+          </View>
+        </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Bildirim kuralları modalı — seçili listeye birden fazla kural bağlanabilir */}
+      <Modal visible={showNotifRules} transparent animationType="slide" onRequestClose={() => setShowNotifRules(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={styles.sheetOverlay}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: '88%' }]}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>
+                🔔 {ruleForm ? (ruleForm.id ? 'Kuralı Düzenle' : 'Yeni Kural') : `Bildirimler — ${selectedList?.name || ''}`}
+              </Text>
+              <Pressable onPress={() => (ruleForm ? setRuleForm(null) : setShowNotifRules(false))} hitSlop={12}>
+                <Text style={{ color: colors.textDim, fontSize: 20 }}>{ruleForm ? '‹' : '✕'}</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {notifLoading ? (
+                <ActivityIndicator color={colors.primaryLight} style={{ marginTop: 24 }} />
+              ) : !ruleForm ? (
+                <>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, lineHeight: 17, marginBottom: 14 }}>
+                    Bu listedeki yeni haberler için bildirim kuralları. Birden fazla kural
+                    ekleyebilirsin — örneğin biri anlık, biri günlük özet.
+                  </Text>
+
+                  {notifRules.length === 0 ? (
+                    <Text style={{ color: colors.textFaint, textAlign: 'center', marginVertical: 20 }}>
+                      Henüz kural yok.
+                    </Text>
+                  ) : notifRules.map((r) => (
+                    <View key={r.id} style={styles.feedRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '700' }} numberOfLines={1}>{r.name}</Text>
+                        <Text style={{ color: colors.textFaint, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
+                          {ruleSummary(r)}
+                        </Text>
+                        {!r.ready && (
+                          <Text style={{ color: '#fbbf24', fontSize: 10, marginTop: 2 }}>
+                            ⏳ ilk tarama sürüyor…
+                          </Text>
+                        )}
+                      </View>
+                      <Pressable onPress={() => toggleRule(r)} hitSlop={8} style={{ paddingHorizontal: 8 }}>
+                        <Text style={{ color: r.enabled ? '#34d399' : colors.textFaint, fontSize: 18 }}>
+                          {r.enabled ? '◉' : '○'}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setRuleForm({
+                          id: r.id, name: r.name, scope: r.scope, feed_ids: r.feed_ids || [],
+                          mode: r.mode, interval_minutes: r.interval_minutes || 60, grouping: r.grouping,
+                        })}
+                        style={styles.removeFeedBtn}>
+                        <Text style={{ color: colors.primaryLight, fontSize: 12, fontWeight: '600' }}>Düzenle</Text>
+                      </Pressable>
+                      <Pressable onPress={() => deleteRule(r.id)} style={styles.removeFeedBtn}>
+                        <Text style={{ color: colors.error, fontSize: 12, fontWeight: '600' }}>Sil</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+
+                  <Pressable
+                    onPress={() => setRuleForm({ ...EMPTY_RULE })}
+                    style={[styles.addBtn, { backgroundColor: colors.primary, marginTop: 16, alignSelf: 'stretch', alignItems: 'center' }]}>
+                    <Text style={styles.addBtnText}>+ Yeni kural</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.ruleLabel}>Kural adı</Text>
+                  <TextInput
+                    style={styles.createInput}
+                    placeholder="ör. Kritik açıklar"
+                    placeholderTextColor={colors.textFaint}
+                    value={ruleForm.name}
+                    onChangeText={(v) => setRuleForm((p) => ({ ...p, name: v }))}
+                  />
+
+                  <Text style={styles.ruleLabel}>Hangi beslemeler?</Text>
+                  <View style={styles.ruleChipRow}>
+                    {[{ k: 'all', l: 'Tüm beslemeler' }, { k: 'selected', l: 'Seçili beslemeler' }].map((o) => (
+                      <Pressable key={o.k} onPress={() => setRuleForm((p) => ({ ...p, scope: o.k }))}
+                        style={[styles.ruleChip, ruleForm.scope === o.k && styles.ruleChipOn]}>
+                        <Text style={{ color: ruleForm.scope === o.k ? colors.primaryLight : colors.textFaint, fontSize: 12, fontWeight: '700' }}>{o.l}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {ruleForm.scope === 'selected' && (
+                    <View style={{ marginTop: 8 }}>
+                      {(selectedList?.feeds || []).map((f) => {
+                        const on = ruleForm.feed_ids.includes(f.id);
+                        return (
+                          <Pressable key={f.id}
+                            onPress={() => setRuleForm((p) => ({
+                              ...p,
+                              feed_ids: on ? p.feed_ids.filter((x) => x !== f.id) : [...p.feed_ids, f.id],
+                            }))}
+                            style={styles.feedRow}>
+                            <Text style={{ color: on ? '#34d399' : colors.textFaint, fontSize: 16 }}>{on ? '☑' : '☐'}</Text>
+                            <Text style={{ color: colors.text, flex: 1 }} numberOfLines={1}>
+                              {f.title || hostFromUrl(f.url)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  <Text style={styles.ruleLabel}>Ne zaman?</Text>
+                  <View style={styles.ruleChipRow}>
+                    {[{ k: 'immediate', l: 'Hemen (~15 dk)' }, { k: 'interval', l: 'Aralıklı' }].map((o) => (
+                      <Pressable key={o.k} onPress={() => setRuleForm((p) => ({ ...p, mode: o.k }))}
+                        style={[styles.ruleChip, ruleForm.mode === o.k && styles.ruleChipOn]}>
+                        <Text style={{ color: ruleForm.mode === o.k ? colors.primaryLight : colors.textFaint, fontSize: 12, fontWeight: '700' }}>{o.l}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {ruleForm.mode === 'interval' && (
+                    <View style={styles.ruleChipRow}>
+                      {[{ v: 30, l: '30 dk' }, { v: 60, l: '1 saat' }, { v: 180, l: '3 saat' },
+                        { v: 360, l: '6 saat' }, { v: 1440, l: 'Günde 1' }].map((o) => (
+                        <Pressable key={o.v} onPress={() => setRuleForm((p) => ({ ...p, interval_minutes: o.v }))}
+                          style={[styles.ruleChip, ruleForm.interval_minutes === o.v && styles.ruleChipOn]}>
+                          <Text style={{ color: ruleForm.interval_minutes === o.v ? colors.primaryLight : colors.textFaint, fontSize: 12, fontWeight: '700' }}>{o.l}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+
+                  <Text style={styles.ruleLabel}>Nasıl gelsin?</Text>
+                  <View style={styles.ruleChipRow}>
+                    {[{ k: 'digest', l: 'Tek özet' }, { k: 'individual', l: 'Her makale ayrı' }].map((o) => (
+                      <Pressable key={o.k} onPress={() => setRuleForm((p) => ({ ...p, grouping: o.k }))}
+                        style={[styles.ruleChip, ruleForm.grouping === o.k && styles.ruleChipOn]}>
+                        <Text style={{ color: ruleForm.grouping === o.k ? colors.primaryLight : colors.textFaint, fontSize: 12, fontWeight: '700' }}>{o.l}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Text style={{ color: colors.textFaint, fontSize: 11, marginTop: 12, lineHeight: 16 }}>
+                    Sessiz saatlerde bildirim gönderilmez; biriken haberler aralık bitince
+                    tek özet olarak gelir. Ayarlar → Bildirimler'den değiştirebilirsin.
+                  </Text>
+
+                  <Pressable onPress={saveRule} disabled={notifSaving}
+                    style={[styles.addBtn, { backgroundColor: colors.primary, marginTop: 18, alignSelf: 'stretch', alignItems: 'center' }]}>
+                    <Text style={styles.addBtnText}>{notifSaving ? '…' : 'Kaydet'}</Text>
+                  </Pressable>
+                </>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -1052,6 +1367,11 @@ const makeStyles = (colors) => StyleSheet.create({
   menuItem: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 14, paddingHorizontal: 16, marginBottom: 10 },
   feedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: colors.chip, borderRadius: radius.sm, marginBottom: 6 },
   removeFeedBtn: { borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 },
+  // Bildirim kuralı formu
+  ruleLabel: { color: colors.textDim, fontSize: 12, fontWeight: '700', marginTop: 16, marginBottom: 6 },
+  ruleChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  ruleChip: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 7, paddingHorizontal: 12 },
+  ruleChipOn: { backgroundColor: colors.primarySoft, borderColor: colors.primaryLight },
   modalTitle: { color: colors.text, fontSize: 22, fontWeight: '900', lineHeight: 28, marginBottom: 18 },
   summaryCard: { backgroundColor: 'rgba(99,102,241,0.06)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.12)', borderRadius: radius.md, padding: 16, marginBottom: 18 },
   summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },

@@ -39,3 +39,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# FCM / Firebase kimlik bilgileri — repoya GİRMEZ
+google-services.json
+google-service-account*.json

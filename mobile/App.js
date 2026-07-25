@@ -24,6 +24,31 @@ export default function App() {
   const responseListener = useRef();
 
   useEffect(() => {
+    // Bildirime tıklanınca nereye gidileceği. Navigasyon hazır değilse (soğuk
+    // başlangıçta olabilir) hazır olana kadar kısa aralıklarla tekrar denenir.
+    const routeFor = (data) => {
+      if (!data?.type) return null;
+      if (data.type === 'podcast_ready') return { screen: 'Podcasts' };
+      // RSS bildirimleri: tek makale → makaleyi aç, özet → listeyi aç
+      if (data.type === 'rss_article') {
+        return { screen: 'RSS', params: { notifArticleId: data.article_id, notifListId: data.list_id } };
+      }
+      if (data.type === 'rss_digest') {
+        return { screen: 'RSS', params: { notifListId: data.list_id } };
+      }
+      return null;
+    };
+
+    const go = (data, attempt = 0) => {
+      const target = routeFor(data);
+      if (!target) return;
+      if (navigationRef.isReady()) {
+        navigationRef.navigate('Main', target);
+      } else if (attempt < 20) {
+        setTimeout(() => go(data, attempt + 1), 250);
+      }
+    };
+
     // Uygulama açıkken gelen bildirimler
     notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
       console.log('[Push] Bildirim alındı:', notification.request.content.title);
@@ -31,11 +56,16 @@ export default function App() {
 
     // Bildirime tıklanınca (arka plan / kapalı dahil)
     responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data;
-      if (data?.type === 'podcast_ready' && navigationRef.isReady()) {
-        navigationRef.navigate('Main', { screen: 'Podcasts' });
-      }
+      go(response.notification.request.content.data);
     });
+
+    // Uygulama tamamen kapalıyken bildirime tıklanmışsa yukarıdaki dinleyici
+    // kaçırabilir — açılışta son yanıtı bir kez kontrol et.
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (response) go(response.notification.request.content.data);
+      })
+      .catch(() => {});
 
     return () => {
       Notifications.removeNotificationSubscription(notificationListener.current);
