@@ -683,9 +683,14 @@ export default function RssReaderScreen({ route }) {
 
   const renderArticle = ({ item: a }) => (
     <Pressable onPress={() => openArticle(a)} style={styles.article}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-        <Text style={[styles.feedBadge, { color: feedColor(a.feed_title), backgroundColor: `${feedColor(a.feed_title)}22` }]}>{a.feed_title}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <Text numberOfLines={1} style={[styles.feedBadge, { color: feedColor(a.feed_title), backgroundColor: `${feedColor(a.feed_title)}22`, flexShrink: 1 }]}>{a.feed_title}</Text>
         {!!podcastCache[a.title] && <Text style={styles.podcastBadge}>🎧 Podcast</Text>}
+        {!!a.published && (
+          <Text style={{ color: colors.textFaint, fontSize: 11, marginLeft: 'auto', flexShrink: 0 }}>
+            {formatArticleDate(a.published)}
+          </Text>
+        )}
       </View>
       <Text style={styles.articleTitle}>{a.title}</Text>
       {!!a.summary && <Text style={styles.articleSummary} numberOfLines={2}>{stripHtml(a.summary)}</Text>}
@@ -877,8 +882,13 @@ export default function RssReaderScreen({ route }) {
                 renderItem={({ item: a }) => (
                   <Pressable onPress={() => openArticle(a)} style={styles.article}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <Text style={[styles.feedBadge, { color: feedColor(a.feed_title), backgroundColor: `${feedColor(a.feed_title)}22` }]}>{a.feed_title || 'RSS'}</Text>
-                      <Text style={{ color: 'rgba(99,102,241,0.7)', fontSize: 11, marginLeft: 'auto' }}>📌</Text>
+                      <Text numberOfLines={1} style={[styles.feedBadge, { color: feedColor(a.feed_title), backgroundColor: `${feedColor(a.feed_title)}22`, flexShrink: 1 }]}>{a.feed_title || 'RSS'}</Text>
+                      {!!a.published && (
+                        <Text style={{ color: colors.textFaint, fontSize: 11, marginLeft: 'auto', flexShrink: 0 }}>
+                          {formatArticleDate(a.published)}
+                        </Text>
+                      )}
+                      <Text style={{ color: 'rgba(99,102,241,0.7)', fontSize: 11, marginLeft: a.published ? 6 : 'auto', flexShrink: 0 }}>📌</Text>
                     </View>
                     <Text style={styles.articleTitle}>{a.title}</Text>
                     {!!a.summary && <Text style={styles.articleSummary} numberOfLines={2}>{stripHtml(a.summary)}</Text>}
