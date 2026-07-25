@@ -172,24 +172,38 @@ export default function SettingsScreen({ navigation }) {
   // üst bölüm katlanınca çocuklar unmount olur ve durum sıfırlanırdı.
   const [openGroups, setOpenGroups] = useState({});
 
-  // Gündem bildirimi (haber gündemi + tüm RSS beslemeleri) — kullanıcı başına tek kural.
-  const [trend, setTrend] = useState(null);
+  // Gündem bildirimi iki ayrı kural: akış gündemi ve RSS gündemi.
+  // Ayarlar'da sekme olarak yönetiliyorlar; her birinin kendi ayarı var.
+  const [trendTab, setTrendTab] = useState('news');   // 'news' | 'rss'
+  const [trends, setTrends] = useState({ news: null, rss: null });
   const [trendSaving, setTrendSaving] = useState(false);
+  const trend = trends[trendTab];
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await apiFetch('/rss-reader/trending-notification');
-        if (res.ok) setTrend(await res.json());
+        const [n, r] = await Promise.all([
+          apiFetch('/notifications/trending/news'),
+          apiFetch('/notifications/trending/rss'),
+        ]);
+        setTrends({
+          news: n.ok ? await n.json() : null,
+          rss: r.ok ? await r.json() : null,
+        });
       } catch (_) { /* sessiz: bölüm yüklenmezse gizli kalır */ }
     })();
   }, []);
+
+  const setTrend = (updater) => setTrends((prev) => ({
+    ...prev,
+    [trendTab]: typeof updater === 'function' ? updater(prev[trendTab]) : updater,
+  }));
 
   const saveTrend = async () => {
     if (!trend) return;
     setTrendSaving(true);
     try {
-      const res = await apiFetch('/rss-reader/trending-notification', {
+      const res = await apiFetch(`/notifications/trending/${trendTab}`, {
         method: 'PUT',
         body: JSON.stringify({
           enabled: trend.enabled,
@@ -202,8 +216,9 @@ export default function SettingsScreen({ navigation }) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || '');
       }
-      setTrend(await res.json());
-      showToast('Gündem bildirimi kaydedildi.');
+      const saved = await res.json();
+      setTrends((p) => ({ ...p, [trendTab]: saved }));
+      showToast(trendTab === 'news' ? 'Akış gündemi kaydedildi.' : 'RSS gündemi kaydedildi.');
     } catch (e) {
       showToast(e?.message || 'Kaydedilemedi.', 'error');
     } finally { setTrendSaving(false); }
@@ -382,16 +397,34 @@ export default function SettingsScreen({ navigation }) {
             title="🔥 Gündem Bildirimi"
             titleStyle={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}
             colors={colors}
-            badge={trend.enabled ? (
-              <View style={styles.countBadge}><Text style={styles.countBadgeText}>açık</Text></View>
+            badge={(trends.news?.enabled || trends.rss?.enabled) ? (
+              <View style={styles.countBadge}>
+                <Text style={styles.countBadgeText}>
+                  {[trends.news?.enabled && 'akış', trends.rss?.enabled && 'rss'].filter(Boolean).join(' + ')}
+                </Text>
+              </View>
             ) : null}
             containerStyle={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.borderSoft }]}
             headerStyle={{ marginBottom: 0 }}
           >
             <View style={{ marginTop: 14 }}>
-              <Text style={{ color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
-                Haber gündemi ve tüm RSS beslemelerinden derlenen gündem için bildirim.
-                Liste bazındaki kurallardan bağımsızdır.
+              {/* İki ayrı kural: akış gündemi ve RSS gündemi, her biri kendi ayarıyla */}
+              <View style={styles.trendTabRow}>
+                {[{ k: 'news', l: '📰 Akış Gündemi' }, { k: 'rss', l: '📡 RSS Gündemi' }].map((t) => (
+                  <Pressable key={t.k} onPress={() => setTrendTab(t.k)}
+                    style={[styles.trendTab, trendTab === t.k && styles.trendTabOn]}>
+                    <Text style={{ color: trendTab === t.k ? colors.primaryLight : colors.textFaint, fontWeight: '800', fontSize: 12 }}>
+                      {t.l}
+                    </Text>
+                    {!!trends[t.k]?.enabled && <View style={styles.trendTabDot} />}
+                  </Pressable>
+                ))}
+              </View>
+
+              <Text style={{ color: colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 12, marginBottom: 14 }}>
+                {trendTab === 'news'
+                  ? 'Haber akışındaki gündem (en çok ilgi gören kategorilerden en yeni haberler).'
+                  : 'Tüm RSS listelerindeki beslemelerden derlenen gündem.'}
               </Text>
 
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -451,7 +484,8 @@ export default function SettingsScreen({ navigation }) {
               <Pressable onPress={saveTrend} disabled={trendSaving}
                 style={[styles.outlineBtn, { marginTop: 16 }]}>
                 <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>
-                  {trendSaving ? 'Kaydediliyor…' : 'Gündem Bildirimini Kaydet'}
+                  {trendSaving ? 'Kaydediliyor…'
+                    : trendTab === 'news' ? 'Akış Gündemini Kaydet' : 'RSS Gündemini Kaydet'}
                 </Text>
               </Pressable>
             </View>
@@ -571,6 +605,13 @@ const makeStyles = (colors) => StyleSheet.create({
   trendChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   trendChip: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 7, paddingHorizontal: 12 },
   trendChipOn: { backgroundColor: colors.primarySoft, borderColor: colors.primaryLight },
+  trendTabRow: { flexDirection: 'row', gap: 8 },
+  trendTab: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 10,
+  },
+  trendTabOn: { backgroundColor: colors.primarySoft, borderColor: colors.primaryLight },
+  trendTabDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#34d399' },
   outlineBtn: { borderWidth: 2, borderColor: colors.primary, borderRadius: radius.sm, paddingVertical: 13, alignItems: 'center' },
   dangerBtn: { borderWidth: 1, borderColor: colors.error, borderRadius: radius.sm, paddingVertical: 13, alignItems: 'center' },
   modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center', padding: 24 },

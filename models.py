@@ -278,14 +278,18 @@ class RssNotificationRule(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    # Gündem kuralında (scope="trending") liste yoktur → NULL.
+    # Gündem (scope="trending") ve kategori (scope="category") kurallarında
+    # RSS listesi yoktur → NULL.
     list_id = Column(Integer, ForeignKey("user_rss_lists.id", ondelete="CASCADE"), nullable=True, index=True)
+    # Yalnızca scope="category" için: Akış'taki hangi haber kategorisi izlenecek.
+    category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String, nullable=False)
     enabled = Column(Boolean, nullable=False, default=True)
 
     # "all"      → listedeki tüm beslemeler
     # "selected" → rule_feeds tablosundakiler
     # "trending" → Gündem: haber gündemi + tüm RSS beslemeleri (liste bağımsız)
+    # "category" → Akış: tek bir haber kategorisi (category_id)
     scope = Column(String, nullable=False, default="all")
     # "immediate" → IMMEDIATE_INTERVAL_MINUTES ile yoklanır | "interval" → interval_minutes
     mode = Column(String, nullable=False, default="immediate")
@@ -298,6 +302,7 @@ class RssNotificationRule(Base):
 
     user = relationship("User")
     rss_list = relationship("UserRssList")
+    category = relationship("NewsCategory")
     feeds = relationship("RssNotificationRuleFeed", cascade="all, delete-orphan",
                          back_populates="rule")
     seen_articles = relationship("RssSeenArticle", cascade="all, delete-orphan",

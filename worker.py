@@ -501,6 +501,8 @@ TRENDING_HOURS = 24
 # Gündem "en güncel olanlar" demek; tüm beslemelerin tamamı değil. Sınırsız
 # bırakınca ilk baseline 3500+ makale yazıyor ve her tur ağırlaşıyordu.
 TRENDING_MAX_ARTICLES = 40
+# Akış kategori kuralında bir turda bakılacak en yeni haber sayısı.
+CATEGORY_NEWS_LIMIT = 40
 
 
 def _rule_feeds(rule) -> list:
@@ -510,8 +512,8 @@ def _rule_feeds(rule) -> list:
     selected → yalnızca seçilenler
     trending → kullanıcının TÜM listelerindeki benzersiz beslemeler (Gündem)
     """
-    if rule.scope == "trending":
-        return []          # Gündem beslemeleri _collect_trending'de toplanır
+    if rule.scope in ("trending_rss", "trending_news", "category"):
+        return []          # bu kapsamların kaynakları _collect_articles'ta toplanır
     if rule.scope == "selected":
         selected = {rf.feed_id for rf in rule.feeds}
         return [f for f in rule.rss_list.feeds if f.id in selected]
@@ -556,12 +558,12 @@ def _news_trending_articles(db, user_id: int) -> list:
     ]
 
 
-def _collect_trending(db, rule) -> list:
-    """Gündem kuralının kaynakları: haber gündemi + tüm RSS beslemeleri."""
-    articles = list(_news_trending_articles(db, rule.user_id))
+def _collect_rss_trending(db, rule) -> list:
+    """RSS gündemi: kullanıcının TÜM listelerindeki beslemelerin en yenileri."""
+    articles = []
 
-    # Kullanıcının tüm listelerindeki benzersiz beslemeler (aynı url birden
-    # fazla listede olabilir) — routers/rss_reader.get_rss_trending ile aynı mantık.
+    # Aynı url birden fazla listede olabilir — routers/rss_reader.get_rss_trending
+    # ile aynı mantık.
     lists = db.query(models.UserRssList).filter(
         models.UserRssList.user_id == rule.user_id).all()
     feeds = {}
@@ -586,6 +588,11 @@ def _collect_trending(db, rule) -> list:
 
     articles.extend(unique[:TRENDING_MAX_ARTICLES])
     return articles
+
+
+def _collect_news_trending(db, rule) -> list:
+    """Akış gündemi: yalnızca haber tablosundan, tıklama verisine göre sıcak kategoriler."""
+    return _news_trending_articles(db, rule.user_id)
 
 
 def _parse_hhmm(value: str, fallback: str) -> tuple:
@@ -644,7 +651,16 @@ def _send_rule_notification(db, rule, new_rows: list, batch_stamp) -> None:
         return
 
     # Gündem kuralında liste yok (list_id NULL) → rss_list None olur.
-    list_name = rule.rss_list.name if rule.rss_list else "Gündem"
+    if rule.rss_list:
+        list_name = rule.rss_list.name
+    elif rule.scope == "category" and rule.category:
+        list_name = rule.category.name
+    elif rule.scope == "trending_news":
+        list_name = "Akış Gündemi"
+    elif rule.scope == "trending_rss":
+        list_name = "RSS Gündemi"
+    else:
+        list_name = "Gündem"
     # Kullanıcı birden fazla kural kurabildiği için hangisinin tetiklendiği
     # bildirimden anlaşılmalı — başlıkta kuralın kendi adı geçiyor.
     rule_name = rule.name or list_name
@@ -701,10 +717,47 @@ def _send_no_news_notification(db, rule) -> None:
     print(f"[Bildirim] Kural {rule.id}: yeni haber yok bildirimi gönderildi.")
 
 
+def _news_category_articles(db, category_id: int) -> list:
+    """Akış kategorisindeki en yeni haberler → makale sözlükleri.
+
+    Alt kategoriler de dahil (Akış'taki kategori filtresiyle aynı davranış).
+    """
+    ids = [category_id] + [
+        c.id for c in db.query(models.NewsCategory.id)
+        .filter(models.NewsCategory.parent_id == category_id).all()
+    ]
+    rows = (
+        db.query(models.News)
+        .filter(models.News.category_id.in_(ids))
+        .order_by(models.News.published_at.desc().nulls_last(), models.News.created_at.desc())
+        .limit(CATEGORY_NEWS_LIMIT)
+        .all()
+    )
+    cat_name = None
+    cat = db.query(models.NewsCategory).filter(models.NewsCategory.id == category_id).first()
+    if cat:
+        cat_name = cat.name
+    return [
+        {
+            "title": n.title,
+            "link": n.source_url,
+            "summary": n.summary,
+            "feed_title": cat_name or "Akış",
+            "feed_url": None,
+            "published": n.published_at.isoformat() if n.published_at else None,
+        }
+        for n in rows
+    ]
+
+
 def _collect_articles(rule, db=None) -> list:
     """Kuralın kaynaklarından makaleleri toplar (Redis cache'li)."""
-    if rule.scope == "trending":
-        return _collect_trending(db, rule)
+    if rule.scope == "trending_rss":
+        return _collect_rss_trending(db, rule)
+    if rule.scope == "trending_news":
+        return _collect_news_trending(db, rule)
+    if rule.scope == "category":
+        return _news_category_articles(db, rule.category_id) if rule.category_id else []
     articles = []
     for feed in _rule_feeds(rule):
         articles.extend(rss_service.fetch_feed(feed.url, feed.title))

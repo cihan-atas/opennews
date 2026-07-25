@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View, Text, TextInput, Pressable, FlatList, ScrollView, StyleSheet,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Modal, Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { apiFetch } from '../api/client';
 import { formatArticleDate } from '../utils/formatDate';
+import IntervalStepper, { INTERVAL_MIN } from '../components/IntervalStepper';
 import { useToast, Toast } from '../components/Toast';
 import NewsDetailModal from '../components/NewsDetailModal';
 import { radius } from '../theme';
@@ -32,6 +33,13 @@ export default function HomeScreen() {
   const [totalCount, setTotalCount] = useState(0);
   const [search, setSearch] = useState('');
   const [catSearch, setCatSearch] = useState('');
+
+  // Akış bildirim kuralları — kategori başına ayrı kural (RSS'teki liste-başına
+  // kural yapısının karşılığı). Yönetimi bu ekrandaki 🔔 butonundan.
+  const [showCatRules, setShowCatRules] = useState(false);
+  const [catRules, setCatRules] = useState([]);
+  const [catRuleForm, setCatRuleForm] = useState(null);
+  const [catRuleSaving, setCatRuleSaving] = useState(false);
   const [searchHistory, setSearchHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState(null); // null=ilgi, 0=tümü, id=kategori
@@ -156,6 +164,67 @@ export default function HomeScreen() {
       return next;
     });
     setPage(1);
+  };
+
+  const loadCatRules = async () => {
+    try {
+      const res = await apiFetch('/notifications/category-rules');
+      if (res.ok) setCatRules(await res.json());
+    } catch (_) { showToast('Bildirim kuralları yüklenemedi.', 'error'); }
+  };
+
+  useEffect(() => { loadCatRules(); }, []);
+
+  const saveCatRule = async () => {
+    if (!catRuleForm) return;
+    setCatRuleSaving(true);
+    const payload = {
+      mode: catRuleForm.mode,
+      interval_minutes: catRuleForm.mode === 'interval' ? catRuleForm.interval_minutes : null,
+      grouping: catRuleForm.grouping,
+    };
+    try {
+      const res = catRuleForm.id
+        ? await apiFetch(`/notifications/category-rules/${catRuleForm.id}`, {
+            method: 'PATCH', body: JSON.stringify(payload) })
+        : await apiFetch('/notifications/category-rules', {
+            method: 'POST', body: JSON.stringify({ ...payload, category_id: catRuleForm.category_id }) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || '');
+      }
+      showToast(catRuleForm.id ? 'Kural güncellendi.' : 'Kural eklendi.');
+      setCatRuleForm(null);
+      loadCatRules();
+    } catch (e) { showToast(e?.message || 'Kaydedilemedi.', 'error'); }
+    finally { setCatRuleSaving(false); }
+  };
+
+  const toggleCatRule = async (rule) => {
+    setCatRules((p) => p.map((r) => (r.id === rule.id ? { ...r, enabled: !r.enabled } : r)));
+    try {
+      const res = await apiFetch(`/notifications/category-rules/${rule.id}`, {
+        method: 'PATCH', body: JSON.stringify({ enabled: !rule.enabled }) });
+      if (!res.ok) throw new Error();
+    } catch (_) {
+      setCatRules((p) => p.map((r) => (r.id === rule.id ? { ...r, enabled: rule.enabled } : r)));
+      showToast('Değiştirilemedi.', 'error');
+    }
+  };
+
+  const deleteCatRule = async (id) => {
+    try {
+      const res = await apiFetch(`/notifications/category-rules/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      setCatRules((p) => p.filter((r) => r.id !== id));
+      showToast('Kural silindi.');
+    } catch (_) { showToast('Silinemedi.', 'error'); }
+  };
+
+  const catRuleSummary = (r) => {
+    const dk = r.effective_interval_minutes;
+    const sure = dk >= 60 ? `${Math.floor(dk / 60)} sa${dk % 60 ? ` ${dk % 60} dk` : ''}` : `${dk} dk`;
+    return `${sure} · ${r.grouping === 'digest' ? 'tek özet' : 'her haber ayrı'}`;
   };
 
   const handleBulletin = async () => {
@@ -324,6 +393,15 @@ export default function HomeScreen() {
         </View>
       )}
 
+      <Pressable
+        onPress={() => { setCatRuleForm(null); setShowCatRules(true); loadCatRules(); }}
+        style={styles.notifBtn}>
+        <Text style={{ color: '#fbbf24', fontWeight: '800' }}>
+          🔔 Akış Bildirimleri{catRules.filter((r) => r.enabled).length > 0
+            ? ` (${catRules.filter((r) => r.enabled).length})` : ''}
+        </Text>
+      </Pressable>
+
       <Pressable onPress={handleBulletin} disabled={bulletinLoading} style={styles.bulletinBtn}>
         <Text style={styles.bulletinBtnText}>
           {bulletinLoading ? '🎙️  Bülten hazırlanıyor…' : '🎙️  Günlük Bülten Oluştur'}
@@ -440,6 +518,121 @@ export default function HomeScreen() {
 
       <NewsDetailModal newsId={selectedId} visible={!!selectedId} onClose={() => setSelectedId(null)} />
 
+      {/* Akış bildirim kuralları — kategori başına */}
+      <Modal visible={showCatRules} transparent animationType="slide" onRequestClose={() => setShowCatRules(false)}>
+        <View style={styles.sheetOverlay}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>
+                🔔 {catRuleForm ? (catRuleForm.id ? 'Kuralı Düzenle' : 'Yeni Kural') : 'Akış Bildirimleri'}
+              </Text>
+              <Pressable onPress={() => (catRuleForm ? setCatRuleForm(null) : setShowCatRules(false))} hitSlop={12}>
+                <Text style={{ color: colors.textDim, fontSize: 20 }}>{catRuleForm ? '‹' : '✕'}</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {!catRuleForm ? (
+                <>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
+                    Kategori başına bildirim kuralı. Örneğin Bilim için saatlik özet,
+                    Ekonomi için anında bildirim.
+                  </Text>
+
+                  {catRules.length === 0 ? (
+                    <Text style={{ color: colors.textFaint, textAlign: 'center', marginVertical: 20 }}>
+                      Henüz kural yok.
+                    </Text>
+                  ) : catRules.map((r) => (
+                    <View key={r.id} style={styles.ruleRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '700' }} numberOfLines={1}>
+                          {r.category_name || r.name}
+                        </Text>
+                        <Text style={{ color: colors.textFaint, fontSize: 11, marginTop: 2 }}>
+                          {catRuleSummary(r)}
+                        </Text>
+                        {!r.ready && (
+                          <Text style={{ color: '#fbbf24', fontSize: 10, marginTop: 2 }}>⏳ ilk tarama sürüyor…</Text>
+                        )}
+                      </View>
+                      <Switch value={!!r.enabled} onValueChange={() => toggleCatRule(r)}
+                        trackColor={{ false: colors.border, true: colors.primary }} />
+                      <Pressable
+                        onPress={() => setCatRuleForm({
+                          id: r.id, category_id: r.category_id, mode: r.mode,
+                          interval_minutes: r.interval_minutes || 60, grouping: r.grouping,
+                        })}
+                        style={styles.ruleBtn}>
+                        <Text style={{ color: colors.primaryLight, fontSize: 12, fontWeight: '600' }}>Düzenle</Text>
+                      </Pressable>
+                      <Pressable onPress={() => deleteCatRule(r.id)} style={styles.ruleBtn}>
+                        <Text style={{ color: colors.error, fontSize: 12, fontWeight: '600' }}>Sil</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+
+                  <Text style={[styles.ruleLabel, { marginTop: 18 }]}>Kategori seç ve kural ekle</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {interests
+                      .filter((c) => !catRules.some((r) => r.category_id === c.id))
+                      .map((c) => (
+                        <Pressable key={c.id}
+                          onPress={() => setCatRuleForm({
+                            id: null, category_id: c.id, mode: 'immediate',
+                            interval_minutes: 60, grouping: 'digest',
+                          })}
+                          style={styles.ruleChip}>
+                          <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: '700' }}>+ {c.name}</Text>
+                        </Pressable>
+                      ))}
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.ruleLabel}>Ne zaman?</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {[{ k: 'immediate', l: 'Hemen (~15 dk)' }, { k: 'interval', l: 'Aralıklı' }].map((o) => (
+                      <Pressable key={o.k} onPress={() => setCatRuleForm((p) => ({ ...p, mode: o.k }))}
+                        style={[styles.ruleChip, catRuleForm.mode === o.k && styles.ruleChipOn]}>
+                        <Text style={{ color: catRuleForm.mode === o.k ? colors.primaryLight : colors.textFaint, fontSize: 12, fontWeight: '700' }}>{o.l}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {catRuleForm.mode === 'interval' && (
+                    <View style={{ marginTop: 10 }}>
+                      <IntervalStepper
+                        value={catRuleForm.interval_minutes || INTERVAL_MIN}
+                        onChange={(v) => setCatRuleForm((p) => ({ ...p, interval_minutes: v }))}
+                        colors={colors}
+                      />
+                    </View>
+                  )}
+
+                  <Text style={styles.ruleLabel}>Nasıl gelsin?</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {[{ k: 'digest', l: 'Tek özet' }, { k: 'individual', l: 'Her haber ayrı' }].map((o) => (
+                      <Pressable key={o.k} onPress={() => setCatRuleForm((p) => ({ ...p, grouping: o.k }))}
+                        style={[styles.ruleChip, catRuleForm.grouping === o.k && styles.ruleChipOn]}>
+                        <Text style={{ color: catRuleForm.grouping === o.k ? colors.primaryLight : colors.textFaint, fontSize: 12, fontWeight: '700' }}>{o.l}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Pressable onPress={saveCatRule} disabled={catRuleSaving}
+                    style={[styles.notifBtn, { marginTop: 18, borderColor: colors.primary }]}>
+                    <Text style={{ color: colors.primaryLight, fontWeight: '800' }}>
+                      {catRuleSaving ? 'Kaydediliyor…' : 'Kaydet'}
+                    </Text>
+                  </Pressable>
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {suggestion && (
         <View style={styles.suggestion}>
           <Text style={styles.suggestionTitle}>İlgi Alanı Önerisi 🎯</Text>
@@ -483,6 +676,32 @@ const makeStyles = (colors) => StyleSheet.create({
   bulletinBtnText: { color: colors.primaryLight, fontWeight: '800', fontSize: 14 },
   chip: { paddingVertical: 10, paddingHorizontal: 18, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
   chipActive: { borderColor: colors.primaryLight, backgroundColor: colors.primarySoft },
+  // Akış bildirim kuralları
+  notifBtn: {
+    borderWidth: 1, borderColor: 'rgba(245,158,11,0.35)', borderRadius: radius.sm,
+    paddingVertical: 12, alignItems: 'center', marginBottom: 12,
+  },
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg,
+    padding: 20, maxHeight: '85%',
+  },
+  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  sheetTitle: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  ruleRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
+  },
+  ruleBtn: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: 8,
+    paddingVertical: 5, paddingHorizontal: 9,
+  },
+  ruleLabel: { color: colors.textDim, fontSize: 12, fontWeight: '700', marginTop: 16, marginBottom: 6 },
+  ruleChip: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm,
+    paddingVertical: 7, paddingHorizontal: 12,
+  },
+  ruleChipOn: { backgroundColor: colors.primarySoft, borderColor: colors.primaryLight },
   trendLabel: { color: colors.warning, fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 },
   trendCard: { width: 240, backgroundColor: 'rgba(245,158,11,0.05)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)', borderRadius: radius.md, padding: 16 },
   trendCat: { color: colors.warning, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
