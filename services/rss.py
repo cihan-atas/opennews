@@ -10,6 +10,7 @@ besleme bir turda defalarca çekilebilir. Kısa ömürlü cache bunu önler.
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -86,6 +87,44 @@ def _download(url: str) -> Optional[bytes]:
     return resp.content
 
 
+# Özetin gerçek içerik sayılması için başlık ve kaynak adı çıkarıldıktan sonra
+# geriye kalması gereken en az karakter.
+_MIN_REAL_SUMMARY_CHARS = 20
+
+
+def _strip_html(value: str) -> str:
+    value = re.sub(r"<[^>]+>", " ", value or "")
+    value = re.sub(r"&[a-zA-Z#0-9]+;", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _clean_entry(entry) -> tuple:
+    """Başlık ve özeti normalleştirir.
+
+    Google News beslemelerinde başlık " - Kaynak Adı" ile biter (kaynak zaten
+    ayrı alanda gelir) ve "özet" aslında başlığın bağlantılı hali + kaynak
+    adıdır — gerçek içerik yoktur. Böyle özetleri boş bırakmak, aynı başlığı
+    ikinci kez göstermekten ve podcast senaryosunu yanıltmaktan iyidir.
+    """
+    title = entry.get("title", "Başlık yok")
+    summary = entry.get("summary", "") or ""
+    source_title = (entry.get("source") or {}).get("title")
+
+    if source_title:
+        suffix = f" - {source_title}"
+        if title.endswith(suffix):
+            title = title[: -len(suffix)].strip()
+
+    # Başlık ve kaynak adı çıkınca anlamlı metin kalmıyorsa özet sayılmaz.
+    residual = _strip_html(summary)
+    for junk in filter(None, (title, source_title)):
+        residual = residual.replace(junk, "")
+    if len(residual.strip()) < _MIN_REAL_SUMMARY_CHARS:
+        summary = ""
+
+    return title, summary
+
+
 def _parse(url: str, feed_title: Optional[str]) -> list[dict]:
     content = _download(url)
     if content is None:
@@ -98,10 +137,11 @@ def _parse(url: str, feed_title: Optional[str]) -> list[dict]:
             dt = datetime(*pub[:6], tzinfo=timezone.utc).isoformat()
         else:
             dt = None
+        title, summary = _clean_entry(entry)
         articles.append({
-            "title": entry.get("title", "Başlık yok"),
+            "title": title,
             "link": entry.get("link", ""),
-            "summary": entry.get("summary", ""),
+            "summary": summary,
             "published": dt,
             "feed_title": feed_title or parsed.feed.get("title", url),
             "feed_url": url,
