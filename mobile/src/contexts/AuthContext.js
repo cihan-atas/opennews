@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef } f
 import { API_URL } from '../config';
 import { apiFetch, setUnauthorizedHandler } from '../api/client';
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../api/storage';
-import { registerForPushNotifications, sendTokenToServer, removeTokenFromServer } from '../api/notifications';
+import { syncPushToken, removeTokenFromServer } from '../api/notifications';
 
 const AuthContext = createContext(null);
 
@@ -20,6 +20,11 @@ export function AuthProvider({ children }) {
         if (stored) {
           setToken(stored);
           await refreshUser();
+          // Mevcut oturum: token süresi dolmuş/izin sonradan verilmiş olabilir,
+          // her açılışta tazele. Hata oturumu bozmasın.
+          syncPushToken()
+            .then((pt) => { pushTokenRef.current = pt; })
+            .catch((e) => console.warn('[Push] Açılışta kayıt başarısız:', e?.message || e));
         }
       } catch (_) {
         // Saklı token geçersiz / kullanıcı çekilemedi → oturumu temizle.
@@ -88,12 +93,12 @@ export function AuthProvider({ children }) {
       throw new Error('Giriş tamamlanamadı, lütfen tekrar deneyin.');
     }
 
-    // Push token kaydet (hata login'i engellemez)
+    // Push token kaydet (hata login'i engellemez ama sessizce yutulmaz)
     try {
-      const pt = await registerForPushNotifications();
-      pushTokenRef.current = pt;
-      await sendTokenToServer(pt);
-    } catch (_) {}
+      pushTokenRef.current = await syncPushToken();
+    } catch (e) {
+      console.warn('[Push] Giriş sonrası kayıt başarısız:', e?.message || e);
+    }
   }, [refreshUser]);
 
   const register = useCallback(async (username, email, password) => {
