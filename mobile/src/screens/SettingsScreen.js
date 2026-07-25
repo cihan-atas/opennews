@@ -7,6 +7,7 @@ import { apiFetch } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast, Toast } from '../components/Toast';
 import Collapsible from '../components/Collapsible';
+import IntervalStepper, { INTERVAL_MIN } from '../components/IntervalStepper';
 import { useTheme } from '../contexts/ThemeContext';
 import { radius } from '../theme';
 import { groupCategories } from '../utils/categoryTree';
@@ -167,6 +168,46 @@ export default function SettingsScreen({ navigation }) {
 
   const [allCategories, setAllCategories] = useState([]);
   const [selected, setSelected] = useState([]);
+  // Hangi konu grubu açık — Collapsible'ın kendi state'inde tutulamaz, çünkü
+  // üst bölüm katlanınca çocuklar unmount olur ve durum sıfırlanırdı.
+  const [openGroups, setOpenGroups] = useState({});
+
+  // Gündem bildirimi (haber gündemi + tüm RSS beslemeleri) — kullanıcı başına tek kural.
+  const [trend, setTrend] = useState(null);
+  const [trendSaving, setTrendSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch('/rss-reader/trending-notification');
+        if (res.ok) setTrend(await res.json());
+      } catch (_) { /* sessiz: bölüm yüklenmezse gizli kalır */ }
+    })();
+  }, []);
+
+  const saveTrend = async () => {
+    if (!trend) return;
+    setTrendSaving(true);
+    try {
+      const res = await apiFetch('/rss-reader/trending-notification', {
+        method: 'PUT',
+        body: JSON.stringify({
+          enabled: trend.enabled,
+          mode: trend.mode,
+          interval_minutes: trend.mode === 'interval' ? (trend.interval_minutes || INTERVAL_MIN) : null,
+          grouping: trend.grouping,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || '');
+      }
+      setTrend(await res.json());
+      showToast('Gündem bildirimi kaydedildi.');
+    } catch (e) {
+      showToast(e?.message || 'Kaydedilemedi.', 'error');
+    } finally { setTrendSaving(false); }
+  };
   const [pw, setPw] = useState({ old_password: '', new_password: '', confirm: '' });
   const [savingPw, setSavingPw] = useState(false);
   const [savingInterests, setSavingInterests] = useState(false);
@@ -336,6 +377,87 @@ export default function SettingsScreen({ navigation }) {
           </Pressable>
         </View>
 
+        {trend && (
+          <Collapsible
+            title="🔥 Gündem Bildirimi"
+            titleStyle={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}
+            colors={colors}
+            badge={trend.enabled ? (
+              <View style={styles.countBadge}><Text style={styles.countBadgeText}>açık</Text></View>
+            ) : null}
+            containerStyle={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.borderSoft }]}
+            headerStyle={{ marginBottom: 0 }}
+          >
+            <View style={{ marginTop: 14 }}>
+              <Text style={{ color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
+                Haber gündemi ve tüm RSS beslemelerinden derlenen gündem için bildirim.
+                Liste bazındaki kurallardan bağımsızdır.
+              </Text>
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Bildirim gönder</Text>
+                <Switch
+                  value={!!trend.enabled}
+                  onValueChange={(v) => setTrend((p) => ({ ...p, enabled: v }))}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                />
+              </View>
+
+              {trend.enabled && (
+                <>
+                  <Text style={styles.trendLabel}>Ne zaman?</Text>
+                  <View style={styles.trendChipRow}>
+                    {[{ k: 'immediate', l: 'Hemen (~15 dk)' }, { k: 'interval', l: 'Aralıklı' }].map((o) => (
+                      <Pressable key={o.k} onPress={() => setTrend((p) => ({ ...p, mode: o.k }))}
+                        style={[styles.trendChip, trend.mode === o.k && styles.trendChipOn]}>
+                        <Text style={{ color: trend.mode === o.k ? colors.primaryLight : colors.textFaint, fontSize: 12, fontWeight: '700' }}>{o.l}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {trend.mode === 'interval' && (
+                    <View style={{ marginTop: 8 }}>
+                      <IntervalStepper
+                        value={trend.interval_minutes || INTERVAL_MIN}
+                        onChange={(v) => setTrend((p) => ({ ...p, interval_minutes: v }))}
+                        colors={colors}
+                      />
+                    </View>
+                  )}
+
+                  <Text style={styles.trendLabel}>Nasıl gelsin?</Text>
+                  <View style={styles.trendChipRow}>
+                    {[{ k: 'digest', l: 'Tek özet' }, { k: 'individual', l: 'Her makale ayrı' }].map((o) => (
+                      <Pressable key={o.k} onPress={() => setTrend((p) => ({ ...p, grouping: o.k }))}
+                        style={[styles.trendChip, trend.grouping === o.k && styles.trendChipOn]}>
+                        <Text style={{ color: trend.grouping === o.k ? colors.primaryLight : colors.textFaint, fontSize: 12, fontWeight: '700' }}>{o.l}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {trend.configured && !trend.ready && (
+                    <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 10 }}>
+                      ⏳ İlk tarama sürüyor — bittikten sonraki yeni haberler bildirilecek.
+                    </Text>
+                  )}
+                </>
+              )}
+
+              <Text style={{ color: colors.textFaint, fontSize: 11, marginTop: 12, lineHeight: 16 }}>
+                Sessiz saatlerde bildirim gönderilmez; biriken haberler aralık bitince
+                tek özet olarak gelir. Aralıklı modda yeni haber yoksa da haber verilir.
+              </Text>
+
+              <Pressable onPress={saveTrend} disabled={trendSaving}
+                style={[styles.outlineBtn, { marginTop: 16 }]}>
+                <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>
+                  {trendSaving ? 'Kaydediliyor…' : 'Gündem Bildirimini Kaydet'}
+                </Text>
+              </Pressable>
+            </View>
+          </Collapsible>
+        )}
+
         <Collapsible
           title="🎯 Haber Tercihleri"
           titleStyle={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}
@@ -355,6 +477,8 @@ export default function SettingsScreen({ navigation }) {
               return (
                 <Collapsible
                   key={group.id}
+                  open={!!openGroups[group.id]}
+                  onToggle={(v) => setOpenGroups((p) => ({ ...p, [group.id]: v }))}
                   title={group.name}
                   titleStyle={{ color: colors.primaryLight, fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 }}
                   colors={colors}
@@ -442,6 +566,11 @@ const makeStyles = (colors) => StyleSheet.create({
     paddingHorizontal: 7, paddingVertical: 1, minWidth: 20, alignItems: 'center',
   },
   countBadgeText: { color: colors.primaryLight, fontSize: 11, fontWeight: '800' },
+  // Gündem bildirimi formu
+  trendLabel: { color: colors.textDim, fontSize: 12, fontWeight: '700', marginTop: 16, marginBottom: 6 },
+  trendChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  trendChip: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 7, paddingHorizontal: 12 },
+  trendChipOn: { backgroundColor: colors.primarySoft, borderColor: colors.primaryLight },
   outlineBtn: { borderWidth: 2, borderColor: colors.primary, borderRadius: radius.sm, paddingVertical: 13, alignItems: 'center' },
   dangerBtn: { borderWidth: 1, borderColor: colors.error, borderRadius: radius.sm, paddingVertical: 13, alignItems: 'center' },
   modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center', padding: 24 },

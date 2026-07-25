@@ -11,6 +11,7 @@ import { useToast, Toast } from '../components/Toast';
 import { radius } from '../theme';
 import { useTheme } from '../contexts/ThemeContext';
 import { groupCategories } from '../utils/categoryTree';
+import IntervalStepper, { formatInterval, INTERVAL_MIN } from '../components/IntervalStepper';
 
 const FEED_COLORS = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6'];
 const feedColor = (title) => {
@@ -19,19 +20,6 @@ const feedColor = (title) => {
   return FEED_COLORS[idx];
 };
 const stripHtml = (html) => (html ? html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() : '');
-
-// Bildirim aralığı: 15 dk adımlarla, 15 dk – 24 saat arası (backend de aynı sınırı doğrular).
-const INTERVAL_STEP = 15;
-const INTERVAL_MIN = 15;
-const INTERVAL_MAX = 1440;
-// 90 → "1 sa 30 dk", 60 → "1 sa", 45 → "45 dk"
-const formatInterval = (m) => {
-  const total = Number(m) || INTERVAL_MIN;
-  const h = Math.floor(total / 60);
-  const mm = total % 60;
-  if (h === 0) return `${mm} dk`;
-  return mm === 0 ? `${h} sa` : `${h} sa ${mm} dk`;
-};
 // Başlığı çekilemeyen beslemeler için url'den okunur bir etiket üret (örn. venturebeat.com)
 const hostFromUrl = (url) => {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
@@ -486,51 +474,6 @@ export default function RssReaderScreen({ route }) {
       setNotifRules((p) => p.filter((r) => r.id !== ruleId));
       showToast('Kural silindi.');
     } catch (_) { showToast('Silinemedi.', 'error'); }
-  };
-
-  // ── Aralık artır/azalt: basılı tutunca hızlanan tekrar ───────────────────────
-  // 15 dk ile 24 saat arası 95 adım; tek tek basmak yorucu olurdu.
-  const holdTimerRef = useRef(null);
-  const holdCountRef = useRef(0);
-  const intervalRef = useRef(INTERVAL_MIN);   // tekrar sırasında anlık değer buradan okunur
-
-  useEffect(() => {
-    intervalRef.current = ruleForm?.interval_minutes || INTERVAL_MIN;
-  }, [ruleForm?.interval_minutes]);
-
-  const stopHold = () => {
-    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-    holdTimerRef.current = null;
-    holdCountRef.current = 0;
-  };
-
-  // Ekrandan çıkarken kalan zamanlayıcı olmasın.
-  useEffect(() => stopHold, []);
-
-  const applyStep = (delta) => {
-    const cur = intervalRef.current;
-    const next = Math.min(INTERVAL_MAX, Math.max(INTERVAL_MIN, cur + delta));
-    if (next === cur) return false;           // sınıra dayandı
-    intervalRef.current = next;
-    setRuleForm((p) => (p ? { ...p, interval_minutes: next } : p));
-    return true;
-  };
-
-  const startHold = (dir) => {
-    applyStep(dir * INTERVAL_STEP);           // ilk dokunuşun kendisi
-    holdCountRef.current = 0;
-
-    const tick = () => {
-      holdCountRef.current += 1;
-      const n = holdCountRef.current;
-      // Kademeli hızlanma: önce 15 dk, sonra 30 dk, sonra 1 saatlik sıçramalar.
-      const mult = n > 20 ? 4 : n > 8 ? 2 : 1;
-      const delay = n > 20 ? 60 : n > 8 ? 80 : 110;
-      if (!applyStep(dir * INTERVAL_STEP * mult)) { stopHold(); return; }
-      holdTimerRef.current = setTimeout(tick, delay);
-    };
-
-    holdTimerRef.current = setTimeout(tick, 400);   // basılı tutma eşiği
   };
 
   // "Tüm beslemeler · 15 dk · tek özet" gibi tek satırlık okunur özet
@@ -1159,37 +1102,13 @@ export default function RssReaderScreen({ route }) {
                     ))}
                   </View>
 
-                  {ruleForm.mode === 'interval' && (() => {
-                    const cur = ruleForm.interval_minutes || INTERVAL_MIN;
-                    const atMin = cur <= INTERVAL_MIN;
-                    const atMax = cur >= INTERVAL_MAX;
-                    return (
-                      <>
-                        <View style={styles.stepperRow}>
-                          <Pressable
-                            onPressIn={() => startHold(-1)} onPressOut={stopHold}
-                            disabled={atMin}
-                            style={[styles.stepperBtn, atMin && { opacity: 0.35 }]} hitSlop={6}>
-                            <Text style={styles.stepperSign}>−</Text>
-                          </Pressable>
-                          <View style={styles.stepperValue}>
-                            <Text style={{ color: colors.text, fontSize: 16, fontWeight: '800' }}>
-                              {formatInterval(cur)}
-                            </Text>
-                          </View>
-                          <Pressable
-                            onPressIn={() => startHold(1)} onPressOut={stopHold}
-                            disabled={atMax}
-                            style={[styles.stepperBtn, atMax && { opacity: 0.35 }]} hitSlop={6}>
-                            <Text style={styles.stepperSign}>+</Text>
-                          </Pressable>
-                        </View>
-                        <Text style={{ color: colors.textFaint, fontSize: 11, marginTop: 6 }}>
-                          15 dakikalık adımlarla · basılı tutunca hızlanır · 15 dk – 24 saat
-                        </Text>
-                      </>
-                    );
-                  })()}
+                  {ruleForm.mode === 'interval' && (
+                    <IntervalStepper
+                      value={ruleForm.interval_minutes || INTERVAL_MIN}
+                      onChange={(v) => setRuleForm((p) => ({ ...p, interval_minutes: v }))}
+                      colors={colors}
+                    />
+                  )}
 
                   <Text style={styles.ruleLabel}>Nasıl gelsin?</Text>
                   <View style={styles.ruleChipRow}>
@@ -1492,13 +1411,6 @@ const makeStyles = (colors) => StyleSheet.create({
   ruleChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   ruleChip: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 7, paddingHorizontal: 12 },
   ruleChipOn: { backgroundColor: colors.primarySoft, borderColor: colors.primaryLight },
-  // Aralık artır/azalt kutusu: solda −, ortada değer, sağda +
-  stepperRow: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
-  stepperBtn: {
-    width: 52, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm,
-    backgroundColor: colors.inputBg, alignItems: 'center', justifyContent: 'center',
-  },
-  stepperSign: { color: colors.primaryLight, fontSize: 22, fontWeight: '800', lineHeight: 26 },
   // Bildirim partisi şeridi
   batchBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
@@ -1509,11 +1421,6 @@ const makeStyles = (colors) => StyleSheet.create({
   batchClose: {
     borderWidth: 1, borderColor: colors.border, borderRadius: 8,
     paddingVertical: 4, paddingHorizontal: 8,
-  },
-  stepperValue: {
-    flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm,
-    backgroundColor: colors.inputBg, alignItems: 'center', justifyContent: 'center',
-    paddingVertical: 12,
   },
   modalTitle: { color: colors.text, fontSize: 22, fontWeight: '900', lineHeight: 28, marginBottom: 18 },
   summaryCard: { backgroundColor: 'rgba(99,102,241,0.06)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.12)', borderRadius: radius.md, padding: 16, marginBottom: 18 },

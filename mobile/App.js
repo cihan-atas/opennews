@@ -33,6 +33,10 @@ export default function App() {
       if (data.type === 'rss_article') {
         return { screen: 'RSS', params: { notifArticleId: data.article_id, notifListId: data.list_id } };
       }
+      // "Şu an yeni haber yok" — sadece listeyi aç
+      if (data.type === 'rss_none') {
+        return { screen: 'RSS', params: { notifListId: data.list_id } };
+      }
       if (data.type === 'rss_digest') {
         // Sadece listeye düşmek yetmiyordu: bildirimdeki haberleri yüzlerce
         // makale arasında bulmak zor. batch_at ile tam o parti açılır.
