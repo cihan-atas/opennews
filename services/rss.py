@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import feedparser
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,43 @@ def link_hash(link: str) -> str:
     return hashlib.sha1((link or "").strip().encode("utf-8")).hexdigest()
 
 
+REQUEST_TIMEOUT = 20
+_HEADERS = {
+    "User-Agent": FEED_USER_AGENT,
+    "Accept": "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.7",
+    "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
+}
+
+
+def _download(url: str) -> Optional[bytes]:
+    """Beslemeyi requests ile indirir.
+
+    feedparser'ın kendi indiricisi 3xx yönlendirmelerini takip etmiyordu; örneğin
+    therecord.media/feed/ → /feed yönlendirmesinde besleme sessizce boş dönüyordu.
+    requests yönlendirmeyi takip eder ve hata sebebini açıkça verir.
+    """
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+    except Exception as exc:
+        # Bazı yayıncılar (xda-developers, polygon) sunucu IP'lerine bağlantıyı
+        # doğrudan kapatıyor — başlık değiştirmek çözmüyor.
+        logger.warning("[RSS] Bağlanılamadı %s: %s", url, type(exc).__name__)
+        return None
+
+    if resp.status_code != 200:
+        # 403 genelde Cloudflare bot duvarı (ör. bleepingcomputer) — JS challenge
+        # çözülmeden geçilemez.
+        logger.warning("[RSS] HTTP %s: %s", resp.status_code, url)
+        return None
+
+    return resp.content
+
+
 def _parse(url: str, feed_title: Optional[str]) -> list[dict]:
-    parsed = feedparser.parse(url, agent=FEED_USER_AGENT)
+    content = _download(url)
+    if content is None:
+        return []
+    parsed = feedparser.parse(content)
     articles = []
     for entry in parsed.entries[:_MAX_ENTRIES]:
         pub = entry.get("published_parsed") or entry.get("updated_parsed")
@@ -75,9 +111,11 @@ def _parse(url: str, feed_title: Optional[str]) -> list[dict]:
 
 def fetch_feed_title(url: str) -> Optional[str]:
     """Beslemenin kendi başlığı (liste eklenirken otomatik isimlendirme için)."""
+    content = _download(url)
+    if content is None:
+        return None
     try:
-        parsed = feedparser.parse(url, agent=FEED_USER_AGENT)
-        return parsed.feed.get("title") or None
+        return feedparser.parse(content).feed.get("title") or None
     except Exception:
         return None
 
