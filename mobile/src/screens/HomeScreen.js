@@ -13,6 +13,7 @@ import NewsDetailModal from '../components/NewsDetailModal';
 import { radius } from '../theme';
 import { useTheme } from '../contexts/ThemeContext';
 import { usePlayer } from '../contexts/PlayerContext';
+import { useAuth } from '../contexts/AuthContext';
 import * as SecureStore from 'expo-secure-store';
 
 const PAGE_SIZE = 10;
@@ -25,6 +26,7 @@ export default function HomeScreen() {
   const { toast, showToast } = useToast();
   const { colors } = useTheme();
   const { setTrack } = usePlayer();
+  const { user, refreshUser } = useAuth();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [newsList, setNewsList] = useState([]);
@@ -89,11 +91,16 @@ export default function HomeScreen() {
     }
   }, [showToast]);
 
+  // İlgi alanları AuthContext'ten okunuyor: Ayarlar'da kaydedince refreshUser()
+  // context'i tazeliyor ve kategori çipleri anında güncelleniyor. Kendi
+  // /users/me isteğimizle sadece açılışta okuyorduk; Haber Tercihleri
+  // değiştirilince akış eski listeyi göstermeye devam ediyordu.
+  useEffect(() => { setInterests(user?.interests || []); }, [user]);
+
   useEffect(() => {
     (async () => {
       try {
-        const [meRes, trRes] = await Promise.all([apiFetch('/users/me'), apiFetch('/news/trending')]);
-        if (meRes.ok) setInterests((await meRes.json()).interests || []);
+        const trRes = await apiFetch('/news/trending');
         if (trRes.ok) setTrending(await trRes.json());
       } catch (_) {}
     })();
@@ -434,7 +441,8 @@ export default function HomeScreen() {
             method: 'POST',
             body: JSON.stringify({ category_ids: [...ids, suggestion.id] }),
           });
-          setInterests([...me.interests, { id: suggestion.id, name: suggestion.name }]);
+          // Context tazelenir → çipler ve Ayarlar aynı listeyi görür.
+          await refreshUser();
           showToast(`${suggestion.name} eklendi!`);
         }
       }
