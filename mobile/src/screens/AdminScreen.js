@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiFetch } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast, Toast } from '../components/Toast';
+import Collapsible from '../components/Collapsible';
 import { useTheme } from '../contexts/ThemeContext';
 import { radius } from '../theme';
 import { groupCategories } from '../utils/categoryTree';
@@ -304,9 +305,15 @@ export default function AdminScreen({ navigation }) {
             </Pressable>
           </View>
 
-          {/* Bekleyen kaynaklar */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>⏳ Bekleyen Kaynaklar ({pending.length})</Text>
+          {/* Bekleyen kaynaklar — varsayılan açık: onay bekliyorlar, gözden kaçmasın */}
+          <Collapsible
+            title={`⏳ Bekleyen Kaynaklar (${pending.length})`}
+            titleStyle={[styles.sectionTitle, { marginBottom: 0 }]}
+            colors={colors}
+            defaultOpen={pending.length > 0}
+            containerStyle={styles.section}
+          >
+            <View style={{ marginTop: 12 }}>
             {pending.length === 0 ? (
               <Text style={{ color: colors.textDim, fontSize: 13 }}>Bekleyen kaynak yok.</Text>
             ) : (
@@ -331,11 +338,18 @@ export default function AdminScreen({ navigation }) {
                 </View>
               ))
             )}
-          </View>
+            </View>
+          </Collapsible>
 
-          {/* Onaylı kaynaklar */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>✅ Onaylı Kaynaklar ({approved.length})</Text>
+          {/* Onaylı kaynaklar — varsayılan kapalı: uzun liste, ekranı boğuyordu */}
+          <Collapsible
+            title={`✅ Onaylı Kaynaklar (${approved.length})`}
+            titleStyle={[styles.sectionTitle, { marginBottom: 0 }]}
+            colors={colors}
+            defaultOpen={false}
+            containerStyle={styles.section}
+          >
+            <View style={{ marginTop: 12 }}>
             {approved.length === 0 ? (
               <Text style={{ color: colors.textDim, fontSize: 13 }}>Henüz onaylı kaynak yok.</Text>
             ) : (
@@ -355,7 +369,8 @@ export default function AdminScreen({ navigation }) {
                 </View>
               ))
             )}
-          </View>
+            </View>
+          </Collapsible>
 
           {/* Kullanıcı yönetimi */}
           <View style={styles.section}>

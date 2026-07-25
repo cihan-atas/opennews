@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiFetch } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast, Toast } from '../components/Toast';
+import Collapsible from '../components/Collapsible';
 import { useTheme } from '../contexts/ThemeContext';
 import { radius } from '../theme';
 import { groupCategories } from '../utils/categoryTree';
@@ -335,32 +336,56 @@ export default function SettingsScreen({ navigation }) {
           </Pressable>
         </View>
 
-        <View style={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.borderSoft }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>🎯 Haber Tercihleri</Text>
-          {groupCategories(allCategories).map((group) => (
-            <View key={group.id} style={{ marginBottom: 14 }}>
-              <Text style={{ color: colors.primaryLight, fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-                {group.name}
-              </Text>
-              <View style={styles.chips}>
-                {[group, ...group.children].map((cat) => {
-                  const on = selected.includes(cat.id);
-                  return (
-                    <Pressable key={cat.id} onPress={() => toggle(cat.id)} style={[styles.chip, on && styles.chipOn, { borderColor: colors.border }]}>
-                      <Text style={{ color: on ? colors.white : colors.textMuted, fontWeight: '600', fontSize: 13 }}>{cat.name}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+        <Collapsible
+          title="🎯 Haber Tercihleri"
+          titleStyle={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}
+          colors={colors}
+          badge={selected.length > 0 ? (
+            <View style={styles.countBadge}>
+              <Text style={styles.countBadgeText}>{selected.length}</Text>
             </View>
-          ))}
-          <Pressable onPress={updateInterests} disabled={!canUpdateInterests}
-            style={[styles.outlineBtn, !canUpdateInterests && { borderColor: colors.border }]}>
-            <Text style={{ color: canUpdateInterests ? colors.primaryLight : colors.textDim, fontWeight: '700' }}>
-              {savingInterests ? 'Kaydediliyor…' : 'Kategorileri Kaydet'}
-            </Text>
-          </Pressable>
-        </View>
+          ) : null}
+          containerStyle={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.borderSoft }]}
+          headerStyle={{ marginBottom: 0 }}
+        >
+          <View style={{ marginTop: 14 }}>
+            {groupCategories(allCategories).map((group) => {
+              const groupIds = [group, ...group.children].map((c) => c.id);
+              const groupSelected = groupIds.filter((id) => selected.includes(id)).length;
+              return (
+                <Collapsible
+                  key={group.id}
+                  title={group.name}
+                  titleStyle={{ color: colors.primaryLight, fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 }}
+                  colors={colors}
+                  badge={groupSelected > 0 ? (
+                    <View style={styles.countBadge}>
+                      <Text style={styles.countBadgeText}>{groupSelected}</Text>
+                    </View>
+                  ) : null}
+                  containerStyle={{ marginBottom: 14 }}
+                >
+                  <View style={[styles.chips, { marginTop: 8 }]}>
+                    {[group, ...group.children].map((cat) => {
+                      const on = selected.includes(cat.id);
+                      return (
+                        <Pressable key={cat.id} onPress={() => toggle(cat.id)} style={[styles.chip, on && styles.chipOn, { borderColor: colors.border }]}>
+                          <Text style={{ color: on ? colors.white : colors.textMuted, fontWeight: '600', fontSize: 13 }}>{cat.name}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </Collapsible>
+              );
+            })}
+            <Pressable onPress={updateInterests} disabled={!canUpdateInterests}
+              style={[styles.outlineBtn, !canUpdateInterests && { borderColor: colors.border }]}>
+              <Text style={{ color: canUpdateInterests ? colors.primaryLight : colors.textDim, fontWeight: '700' }}>
+                {savingInterests ? 'Kaydediliyor…' : 'Kategorileri Kaydet'}
+              </Text>
+            </Pressable>
+          </View>
+        </Collapsible>
 
         <View style={[styles.section, { borderColor: 'rgba(239,68,68,0.2)', backgroundColor: 'rgba(239,68,68,0.05)' }]}>
           <Text style={[styles.sectionTitle, { color: colors.error }]}>⚠️ Tehlike Bölgesi</Text>
@@ -411,6 +436,12 @@ const makeStyles = (colors) => StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
   chip: { paddingVertical: 9, paddingHorizontal: 16, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlpha },
   chipOn: { borderColor: colors.primaryLight, backgroundColor: colors.primarySoft },
+  // Katlanmış bölümde içeriği görmeden kaç seçim olduğunu gösteren sayaç
+  countBadge: {
+    backgroundColor: colors.primarySoft, borderRadius: 10,
+    paddingHorizontal: 7, paddingVertical: 1, minWidth: 20, alignItems: 'center',
+  },
+  countBadgeText: { color: colors.primaryLight, fontSize: 11, fontWeight: '800' },
   outlineBtn: { borderWidth: 2, borderColor: colors.primary, borderRadius: radius.sm, paddingVertical: 13, alignItems: 'center' },
   dangerBtn: { borderWidth: 1, borderColor: colors.error, borderRadius: radius.sm, paddingVertical: 13, alignItems: 'center' },
   modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center', padding: 24 },
