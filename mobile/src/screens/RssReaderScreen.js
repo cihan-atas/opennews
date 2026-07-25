@@ -821,8 +821,8 @@ export default function RssReaderScreen({ route }) {
                   return (
                     <Pressable onPress={() => openArticle(a)} style={styles.article}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                        <Text style={[styles.feedBadge, { color: feedColor(a.feed_title), backgroundColor: `${feedColor(a.feed_title)}22` }]}>{a.feed_title || 'RSS'}</Text>
-                        {!!a.published && <Text style={{ color: colors.textFaint, fontSize: 11, marginLeft: 'auto' }}>{formatArticleDate(a.published)}</Text>}
+                        <Text numberOfLines={1} style={[styles.feedBadge, { color: feedColor(a.feed_title), backgroundColor: `${feedColor(a.feed_title)}22`, flexShrink: 1 }]}>{a.feed_title || 'RSS'}</Text>
+                        {!!a.published && <Text style={{ color: colors.textFaint, fontSize: 11, marginLeft: 'auto', flexShrink: 0 }}>{formatArticleDate(a.published)}</Text>}
                       </View>
                       <Text style={styles.articleTitle}>{a.title}</Text>
                       {!!a.summary && <Text style={styles.articleSummary} numberOfLines={2}>{stripHtml(a.summary)}</Text>}

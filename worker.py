@@ -88,6 +88,7 @@ def _enforce_podcast_cap(db, user_id: int, limit: int = MAX_ACTIVE_PODCASTS) -> 
 def process_news_and_tts_task(news_id: int, user_id: int, length: str = "medium"):
     db = SessionLocal()
     tmp_path = f"/tmp/news_{news_id}.mp3"
+    news = None                      # hata bildiriminde başlık için (henüz çekilmemiş olabilir)
     _uctx = settings_store.user_context(user_id); _uctx.__enter__()  # kullanıcının kendi anahtarları
     try:
         # 1. DB'den haberi çek
@@ -181,6 +182,7 @@ def process_news_and_tts_task(news_id: int, user_id: int, length: str = "medium"
     except Exception as e:
         db.rollback()
         print(f"[Worker] HATA — news_id={news_id}: {e}")
+        _notify_failure(db, user_id, news.title if news else "", str(e))
         return {"status": "error", "message": str(e)}
 
     finally:
@@ -304,6 +306,7 @@ def process_rss_article_tts_task(title: str, content: str, user_id: int, source_
     except Exception as e:
         db.rollback()
         print(f"[Worker] RSS TTS HATA: {e}")
+        _notify_failure(db, user_id, title, str(e))
         return {"status": "error", "message": str(e)}
     finally:
         _uctx.__exit__(None, None, None)
@@ -407,6 +410,48 @@ def process_bulletin_tts_task(news_ids: list, user_id: int, title: str):
         db.close()
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+# Teknik hata metinlerini kullanıcının anlayacağı sebebe çevirir.
+_ERROR_HINTS = (
+    ("UnrecognizedClientException", "Seslendirme anahtarı geçersiz. Ayarlar → Seslendirme'den sağlayıcıyı kontrol et."),
+    ("InvalidSignatureException", "Seslendirme anahtarı geçersiz. Ayarlar → Seslendirme'den sağlayıcıyı kontrol et."),
+    ("AccessDenied", "Seslendirme servisi erişimi reddetti. Anahtarın yetkilerini kontrol et."),
+    ("invalid_api_key", "Yapay zeka anahtarı geçersiz. Ayarlar → Yapay Zeka'dan kontrol et."),
+    ("Invalid API Key", "Yapay zeka anahtarı geçersiz. Ayarlar → Yapay Zeka'dan kontrol et."),
+    ("rate limit", "Sağlayıcı hız sınırına takıldı. Birazdan tekrar dene."),
+    ("429", "Sağlayıcı hız sınırına takıldı. Birazdan tekrar dene."),
+    ("timed out", "Sağlayıcıya ulaşılamadı (zaman aşımı). Tekrar dene."),
+    ("Connection", "Sağlayıcıya ulaşılamadı. İnternet/servis durumunu kontrol et."),
+)
+
+
+def _humanize_error(err: str) -> str:
+    for needle, hint in _ERROR_HINTS:
+        if needle.lower() in (err or "").lower():
+            return hint
+    return "Beklenmeyen bir hata oldu. Ayarlardaki anahtarları kontrol et."
+
+
+def _notify_failure(db, user_id: int, title: str, err: str) -> None:
+    """Podcast üretilemediğinde kullanıcıyı sebebiyle birlikte uyarır.
+
+    Önce sessizce başarısız oluyordu: kullanıcı butona basıyor, hiçbir şey
+    olmuyor, neden olmadığını göremiyordu.
+    """
+    try:
+        tokens = [t.token for t in db.query(models.PushToken).filter(
+            models.PushToken.user_id == user_id).all()]
+        if not tokens:
+            return
+        push_service.send(
+            tokens,
+            title="🎙️ Podcast oluşturulamadı",
+            body=f"{(title or '')[:60]} — {_humanize_error(err)}",
+            data={"type": "podcast_failed", "reason": _humanize_error(err)},
+        )
+    except Exception as exc:
+        print(f"[Worker] Hata bildirimi gönderilemedi: {exc}")
 
 
 def _notify_user(db, user_id: int, news_title: str) -> None:
