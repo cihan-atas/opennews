@@ -253,3 +253,5 @@ mobile/web-build/
 google-services.json
 GoogleService-Info.plist
 .expo/
+# Bir sonraki sürümün notları — release yayınlanırken kullanılır, repoya girmez
+release.md
