@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../Utils/api';
 import { useWindowSize } from '../Utils/useWindowSize';
 import { groupCategories } from '../Utils/categoryTree';
+import { TrendingNotifications } from './NotificationRules';
 
 // Bir alanın show_when koşulu, mevcut seçim değerlerine göre sağlanıyor mu?
 function fieldVisible(field, draft) {
@@ -344,6 +345,9 @@ function Settings() {
 
           {/* API ANAHTARLARI (herkes kendi anahtarını girer) */}
           <ApiKeysManager isMobile={isMobile} showToast={showToast} />
+
+          {/* GÜNDEM BİLDİRİMİ (mobildeki ile aynı kural, aynı uçlar) */}
+          <TrendingNotifications showToast={showToast} />
 
           {/* İSTATİSTİKLER */}
           {stats && (

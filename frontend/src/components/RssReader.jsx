@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { fetchWithAuth } from '../Utils/api';
+import { RssRulesModal } from './NotificationRules';
 import { useWindowSize } from '../Utils/useWindowSize';
 import { groupCategories } from '../Utils/categoryTree';
 import AudioPlayer from './AudioPlayer';
@@ -22,6 +23,7 @@ function RssReader() {
   const [newFeedUrl, setNewFeedUrl] = useState('');
   const [addingFeed, setAddingFeed] = useState(false);
   const [showFeedForm, setShowFeedForm] = useState(false);
+  const [showNotifRules, setShowNotifRules] = useState(false);
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
 
@@ -760,6 +762,10 @@ function RssReader() {
                   >
                     {loadingArticles ? '⏳' : '↻'} Yenile
                   </button>
+                  <button onClick={() => setShowNotifRules(true)} style={{ ...s.btn('icon'), whiteSpace: 'nowrap' }}
+                    title="Bu liste için bildirim kuralları">
+                    🔔 Bildirim
+                  </button>
                   <button onClick={() => setShowFeedForm(p => !p)} style={{ ...s.btn(showFeedForm ? 'ghost' : 'primary'), whiteSpace: 'nowrap' }}>
                     {showFeedForm ? '✕ Kapat' : '+ RSS Ekle/Kaldır'}
                   </button>
@@ -1058,6 +1064,14 @@ function RssReader() {
             >İptal</button>
           </div>
         </div>
+      )}
+
+      {showNotifRules && selectedList && (
+        <RssRulesModal
+          list={selectedList}
+          onClose={() => setShowNotifRules(false)}
+          showToast={showToast}
+        />
       )}
     </div>
   );

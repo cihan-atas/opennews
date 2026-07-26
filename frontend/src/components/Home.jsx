@@ -1,9 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { fetchWithAuth } from '../Utils/api';
+import { CategoryRulesModal } from './NotificationRules';
 import { useWindowSize } from '../Utils/useWindowSize';
 import AudioPlayer from './AudioPlayer';
 import { usePlayer } from '../contexts/PlayerContext';
+
+// Sunucunun "bitti" demesi için beklenecek en uzun süre (mobil HomeScreen ile aynı).
+const REFRESH_TIMEOUT_MS = 4 * 60 * 1000;
 
 function Home() {
   const { isMobile } = useWindowSize();
@@ -23,6 +27,7 @@ function Home() {
   const pollRef = useRef(null);
   const [refreshing, setRefreshing] = useState(false);
   const [bulletinLoading, setBulletinLoading] = useState(false);
+  const [showCatRules, setShowCatRules] = useState(false);
   const bulletinPollRef = useRef(null);
   
   const [page, setPage] = useState(1);
@@ -328,6 +333,11 @@ function Home() {
     const refreshController = new AbortController();
     refreshAbortControllerRef.current = refreshController;
 
+    // Sunucudaki bayrak takılı kalırsa (bkz. worker.REFRESH_FLAG_KEY) polling
+    // sonsuza kadar "processing" görürdü: buton kilitli kalır, liste hiç
+    // tazelenmezdi. Mobildeki ile aynı emniyet süresi.
+    const deadline = Date.now() + REFRESH_TIMEOUT_MS;
+
     // 🔄 GERÇEK ZAMANLI TASK TRACKING MECHANISM
     const poll = setInterval(async () => {
       try {
@@ -363,6 +373,13 @@ function Home() {
           setTotalCount(data.total_count);
         }
 
+        if (Date.now() > deadline) {
+          clearInterval(poll);
+          refreshPollRef.current = null;
+          setRefreshing(false);
+          fetchNews(searchTerm, 1, pageSize, activeCategoryIdRef.current);
+          showToast("Tarama uzun sürüyor; liste yine de tazelendi.", "error");
+        }
       } catch (_) {}
     }, 4000);
 
@@ -603,6 +620,11 @@ function Home() {
               </div>
             )}
           </div>
+          <button onClick={() => setShowCatRules(true)} title="Kategori başına bildirim kuralları"
+            style={{ height: '48px', padding: '0 18px', borderRadius: '16px', border: '1px solid rgba(99,102,241,0.35)', background: 'rgba(99,102,241,0.18)', color: '#c7d2fe', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, whiteSpace: 'nowrap', fontWeight: 600 }}>
+            <span style={{ fontSize: '18px' }}>🔔</span>
+            Bildirimler
+          </button>
           <button onClick={handleBulletin} disabled={bulletinLoading} title="Günün haberlerinden tek bir sesli bülten oluştur"
             style={{ height: '48px', padding: '0 18px', borderRadius: '16px', border: '1px solid rgba(99,102,241,0.35)', background: bulletinLoading ? 'rgba(99,102,241,0.12)' : 'rgba(99,102,241,0.18)', color: '#c7d2fe', cursor: bulletinLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, whiteSpace: 'nowrap', fontWeight: 600 }}>
             <span style={{ fontSize: '18px' }}>🎙️</span>
@@ -845,6 +867,14 @@ function Home() {
 
           </div>
         </div>
+      )}
+
+      {showCatRules && (
+        <CategoryRulesModal
+          onClose={() => setShowCatRules(false)}
+          interests={userInterests}
+          showToast={showToast}
+        />
       )}
 
       {suggestion && (
