@@ -224,7 +224,9 @@ def refresh_news(current_user: user_dependency):
     # Böylece frontend ilk polling'de zaten "processing" görür, race condition olmaz.
     import redis as _redis
     from config import settings as _cfg
-    _redis.from_url(_cfg.CELERY_BROKER_URL).set("scraper_running", "1", ex=3600)
+    # Ölçülen tur süresi 50–150 sn. 1 saatlik TTL, bayrak temizlenmeden bir şey
+    # ters giderse uygulamayı bir saat "tazeleniyor" ekranında bırakıyordu.
+    _redis.from_url(_cfg.CELERY_BROKER_URL).set("scraper_running", "1", ex=600)
     run_scraper_task.delay()
     return {"status": "processing"}
 

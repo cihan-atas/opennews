@@ -13,6 +13,7 @@ from database import SessionLocal
 import models
 import time
 from datetime import datetime, timedelta, timezone as _tz
+from zoneinfo import ZoneInfo
 
 CELERY_BROKER_URL = settings.CELERY_BROKER_URL
 
@@ -39,6 +40,16 @@ celery_app.conf.beat_schedule = {
         "task": "prune_rss_seen_articles",
         "schedule": 86400.0,
         "options": {"queue": "notify_queue"},
+    },
+    # Akış haberleri bizim kazıma hattımızdan geliyor; bildirim kuralları ancak
+    # tablo tazelenirse tetikleniyordu. Saatte bir tam tur: ölçülen tur süresi
+    # 50–150 sn ve neredeyse tamamı ağ beklemesi.
+    "run-scraper-hourly": {
+        "task": "run_scraper",
+        "schedule": 3600.0,
+        # Tur uzarsa kuyrukta iş birikmesin: 30 dk içinde başlayamayan tetikleme
+        # düşer, bir sonraki saatlik tur zaten gelecek.
+        "options": {"queue": "scraper_queue", "expires": 1800},
     },
 }
 
@@ -470,21 +481,44 @@ def _notify_user(db, user_id: int, news_title: str) -> None:
         print(f"[Worker] Push bildirim gönderilemedi: {e}")
 
 
+# Kazıma turu 50–150 sn sürüyor. Kilit ömrü bunun çok üstünde: takılan bir tur
+# kilidi sonsuza kadar tutmasın, ama normal tur asla kendini kesmesin.
+SCRAPER_LOCK_KEY = "scraper:running"
+SCRAPER_LOCK_TTL = 900          # 15 dk
+
+
 @celery_app.task(name="run_scraper", queue="scraper_queue")
 def run_scraper_task():
     import sys
     if "/app" not in sys.path:
         sys.path.insert(0, "/app")
     from scraper import scrape_to_db
+
+    # scraper.py'deki is_currently_scraping bayrağı yalnızca kendi süreci içinde
+    # geçerli; worker --concurrency=2 ile çalıştığı ve kullanıcı da elle
+    # tetikleyebildiği için iki tur aynı anda başlayabiliyordu. Redis kilidi
+    # süreçler arası tek turu garanti eder.
+    lock = rss_service.shared_redis()
+    if lock is not None:
+        if not lock.set(SCRAPER_LOCK_KEY, "1", nx=True, ex=SCRAPER_LOCK_TTL):
+            print("[Kazıma] Zaten bir tur çalışıyor, bu tetikleme atlandı.")
+            return {"status": "already_running"}
+
     try:
         result = scrape_to_db()
-        
+
         # Scraper başarıyla bittiği an, arka planda özetleme görevini zincirle tetikle!
         auto_generate_summaries_and_embeddings_task.delay()
-        
+
         return {"status": "success", **result}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+    finally:
+        if lock is not None:
+            try:
+                lock.delete(SCRAPER_LOCK_KEY)
+            except Exception:
+                pass          # TTL zaten temizler
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -494,6 +528,10 @@ def run_scraper_task():
 IMMEDIATE_INTERVAL_MINUTES = 15      # routers/rss_reader.py ile aynı olmalı
 MAX_INDIVIDUAL_PER_RUN = 5           # bozuk besleme telefonu boğmasın
 SEEN_RETENTION_DAYS = 30
+# Başlık bazlı tekilleştirmenin geriye bakış penceresi. Uzun tutmanın maliyeti
+# kural başına birkaç yüz satırlık başlık sorgusu; kısa tutulursa yayıncı
+# günler sonra aynı haberi tekrar yayınladığında ikinci bildirim gidiyor.
+TITLE_DEDUP_DAYS = 7
 
 
 TRENDING_NEWS_LIMIT = 10
@@ -608,6 +646,20 @@ def _parse_hhmm(value: str, fallback: str) -> tuple:
     return int(hh), int(mm)
 
 
+def _local_now() -> datetime:
+    """Kullanıcının saat dilimindeki şu an (APP_TIMEZONE, varsayılan Europe/Istanbul).
+
+    Sunucu UTC'de çalışıyor; sessiz saatler ise kullanıcının saatiyle giriliyor.
+    datetime.now() kullanıldığı sürece 23:00-08:00 aralığı fiilen 02:00-11:00
+    oluyor ve gece bildirim gidiyordu (ölçüldü: 25 Tem 01:42 TR'de bildirim).
+    """
+    try:
+        return datetime.now(ZoneInfo(settings.APP_TIMEZONE))
+    except Exception:
+        # Bozuk/eksik saat dilimi verisinde bildirim tamamen durmasın.
+        return datetime.now(_tz.utc)
+
+
 def _in_quiet_hours(user_id: int) -> bool:
     """Kullanıcının sessiz saat aralığında mıyız?
 
@@ -625,7 +677,7 @@ def _in_quiet_hours(user_id: int) -> bool:
     sh, sm = _parse_hhmm(start_raw, "23:00")
     eh, em = _parse_hhmm(end_raw, "08:00")
 
-    now = datetime.now().time()          # sunucu yerel saati (Europe/Istanbul)
+    now = _local_now().time()
     start_minutes = sh * 60 + sm
     end_minutes = eh * 60 + em
     now_minutes = now.hour * 60 + now.minute
@@ -702,6 +754,26 @@ def _send_rule_notification(db, rule, new_rows: list, batch_stamp) -> None:
                 data=data,
             )
         print(f"[Bildirim] Kural {rule.id}: {min(len(new_rows), MAX_INDIVIDUAL_PER_RUN)} ayrı bildirim.")
+
+        # Kalanlar sessizce düşmesin: hepsi notified_at damgası yiyor, yani bir
+        # daha hiç bildirilmiyorlardı. Sessiz saat bittiğinde 190 haber birikmiş
+        # olabiliyor; ilk 5'i ayrı, gerisi tek özet olarak gider.
+        rest = new_rows[MAX_INDIVIDUAL_PER_RUN:]
+        if rest:
+            data = {"rule_id": rule.id, "batch_at": batch_stamp.isoformat(),
+                    "count": len(rest)}
+            if is_news:
+                data.update({"type": "news_digest", "category_id": rule.category_id})
+            else:
+                data.update({"type": "rss_digest", "list_id": rule.list_id})
+            push_service.send(
+                tokens,
+                title=f"{icon} {rule_name}: {len(rest)} haber daha"[:100],
+                body=rest[0].title[:100],
+                data=data,
+                badge=len(rest),
+            )
+            print(f"[Bildirim] Kural {rule.id}: kalan {len(rest)} haber özette gönderildi.")
     else:
         count = len(new_rows)
         first = new_rows[0].title[:100] if new_rows else ""
@@ -801,10 +873,31 @@ def _store_new_articles(db, rule, articles: list, mark_notified: bool):
     }
 
     now = datetime.now(_tz.utc)
+
+    # Link tekilleştirmesi yetmiyor: yayıncı slug'ı düzeltince ya da aynı ajans
+    # haberi ikinci bir siteden gelince link değişiyor, haber aynı kalıyor.
+    # Son TITLE_DEDUP_DAYS gündeki başlıklar ikinci bir süzgeç.
+    recent_titles = {
+        rss_service.title_key(t)
+        for (t,) in db.query(models.RssSeenArticle.title).filter(
+            models.RssSeenArticle.rule_id == rule.id,
+            models.RssSeenArticle.seen_at >= now - timedelta(days=TITLE_DEDUP_DAYS),
+        ).all()
+    }
+    recent_titles.discard("")
+
     fresh = []
+    duplicates = 0
     for h, a in hashes.items():
         if h in known:
             continue
+        tkey = rss_service.title_key(a.get("title"))
+        # Aynı başlık daha önce görüldüyse satır yine yazılır ama "bildirilmiş"
+        # damgalanır: böylece bir sonraki turda link tekilleştirmesine takılır,
+        # her turda yeniden başlık karşılaştırmasına girmez.
+        is_dupe = bool(tkey) and tkey in recent_titles
+        if tkey:
+            recent_titles.add(tkey)
         row = models.RssSeenArticle(
             rule_id=rule.id,
             link_hash=h,
@@ -815,14 +908,20 @@ def _store_new_articles(db, rule, articles: list, mark_notified: bool):
             feed_url=a.get("feed_url"),
             published=a.get("published"),
             seen_at=now,
-            notified_at=now if mark_notified else None,
+            notified_at=now if (mark_notified or is_dupe) else None,
         )
         db.add(row)
-        fresh.append(row)
+        if is_dupe:
+            duplicates += 1
+        else:
+            fresh.append(row)
 
     db.commit()
     for row in fresh:
         db.refresh(row)
+
+    if duplicates:
+        print(f"[Bildirim] Kural {rule.id}: {duplicates} tekrar başlık atlandı.")
 
     # En yeni önce — özet bildiriminde ilk başlık en tazesi olsun.
     fresh.sort(key=lambda r: r.published or "", reverse=True)

@@ -50,9 +50,35 @@ def _redis():
     return _redis_client
 
 
+def shared_redis():
+    """Broker Redis'ine ortak erişim (cache dışı kullanımlar için: kilitler vb.).
+
+    Bağlanamazsa None döner — çağıran taraf Redis'siz de çalışabilmeli.
+    """
+    return _redis()
+
+
 def link_hash(link: str) -> str:
     """Makale linkinin tekilleştirme anahtarı (rss_seen_articles.link_hash)."""
     return hashlib.sha1((link or "").strip().encode("utf-8")).hexdigest()
+
+
+_TITLE_JUNK = re.compile(r"[^0-9a-zçğıöşü]+")
+# "İ".lower() → "i" + birleşik nokta (U+0307); nokta ayraç sayılıp kelimeyi
+# ikiye bölüyordu ("İçişleri" → "i çişleri"). Türkçe eşlemeyi elle yapıyoruz.
+_TITLE_CASE = str.maketrans({"İ": "i", "I": "ı"})
+
+
+def title_key(title: str) -> str:
+    """Başlığın tekilleştirme anahtarı — link değişse de aynı kalır.
+
+    Link bazlı tekilleştirme iki durumda yetmiyordu:
+      1. Yayıncı slug'ı düzeltiyor (".../dunurler-..." → ".../dunurlerin-...")
+         — aynı haber ikinci kez bildiriliyordu.
+      2. Aynı ajans haberi birden çok yayıncıdan geliyor (aa.com.tr + sabah)
+         — tek özette aynı başlık iki kez görünüyordu.
+    """
+    return _TITLE_JUNK.sub(" ", (title or "").translate(_TITLE_CASE).lower()).strip()
 
 
 REQUEST_TIMEOUT = 20

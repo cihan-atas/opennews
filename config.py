@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     QUIET_HOURS_ENABLED: str = "true"
     QUIET_HOURS_START: str = "23:00"
     QUIET_HOURS_END: str = "08:00"
+    # Sessiz saatler kullanıcının yerel saatiyle girilir; sunucu UTC'de çalışıyor.
+    # Bu ayrım yapılmadığı için 23:00-08:00 aralığı fiilen 02:00-11:00'e kayıyor
+    # ve gece bildirim gidiyordu.
+    APP_TIMEZONE: str = "Europe/Istanbul"
 
     # Amazon Polly (TTS_PROVIDER=polly için)
     AWS_ACCESS_KEY_ID: str = ""

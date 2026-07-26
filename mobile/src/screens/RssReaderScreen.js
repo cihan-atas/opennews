@@ -238,14 +238,25 @@ export default function RssReaderScreen({ route }) {
   const listSelectedForRef = useRef(null);
 
   // Seçili liste şeridin görünen kısmına kaydırılır. Ölçüm (onLayout) bildirim
-  // işlendiğinde henüz gelmemiş olabiliyor → kısa aralıklarla birkaç deneme.
-  const scrollListIntoView = (listId, attempt = 0) => {
-    const x = listChipX.current[listId];
-    if (x === undefined) {
-      if (attempt < 12) setTimeout(() => scrollListIntoView(listId, attempt + 1), 150);
+  // işlendiğinde henüz gelmemiş olabiliyor: zamanlayıcıyla denemek yerine hedef
+  // ref'te tutulur ve çipin kendi onLayout'unda kaydırılır (Akış ile aynı yol).
+  const pendingScrollListRef = useRef(null);   // { id, until }
+
+  const applyPendingListScroll = () => {
+    const pending = pendingScrollListRef.current;
+    if (!pending) return;
+    if (Date.now() > pending.until) {
+      pendingScrollListRef.current = null;
       return;
     }
+    const x = listChipX.current[pending.id];
+    if (x === undefined) return;
     listStripRef.current?.scrollTo({ x: Math.max(0, x - 16), animated: true });
+  };
+
+  const scrollListIntoView = (listId) => {
+    pendingScrollListRef.current = { id: listId, until: Date.now() + 4000 };
+    applyPendingListScroll();
   };
 
   useEffect(() => {
@@ -775,7 +786,10 @@ export default function RssReaderScreen({ route }) {
         {loadingLists ? (
           <ActivityIndicator color={colors.primaryLight} style={{ marginTop: 12 }} />
         ) : (
-          <ScrollView ref={listStripRef} horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }} contentContainerStyle={{ gap: 8 }}>
+          <ScrollView ref={listStripRef} horizontal showsHorizontalScrollIndicator={false}
+            onLayout={applyPendingListScroll}
+            onContentSizeChange={applyPendingListScroll}
+            style={{ marginTop: 12 }} contentContainerStyle={{ gap: 8 }}>
             {orderedLists.map((lst) => {
               const active = selectedList?.id === lst.id;
               const pinned = pinnedIds.includes(lst.id);
@@ -783,7 +797,10 @@ export default function RssReaderScreen({ route }) {
                 <Pressable key={lst.id} onPress={() => selectList(lst)} onLongPress={() => handleListLongPress(lst)}
                   // Bildirimle gelen liste şeridin görünmeyen kısmında olabiliyor;
                   // konumunu bilmeden oraya kaydıramayız.
-                  onLayout={(e) => { listChipX.current[lst.id] = e.nativeEvent.layout.x; }}
+                  onLayout={(e) => {
+                    listChipX.current[lst.id] = e.nativeEvent.layout.x;
+                    if (pendingScrollListRef.current?.id === lst.id) applyPendingListScroll();
+                  }}
                   style={[styles.listChip, active && styles.listChipActive]}>
                   {pinned ? (
                     <Text style={{ fontSize: 11 }}>📌</Text>

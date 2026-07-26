@@ -126,13 +126,32 @@ export default function HomeScreen() {
     multiCatRef.current = multiCategoryIds;
   }, [activeCategoryId, multiCategoryIds]);
 
-  const scrollCategoryIntoView = (catId, attempt = 0) => {
-    const x = catChipX.current[catId];
-    if (x === undefined) {
-      if (attempt < 12) setTimeout(() => scrollCategoryIntoView(catId, attempt + 1), 150);
+  // Kaydırılmayı bekleyen kategori: { id, until }.
+  //
+  // Soğuk başlangıçta (uygulama kapalıyken bildirime basmak) tek seferlik
+  // kaydırma tutmuyordu — iki ayrı sebeple: çipler henüz ölçülmemiş oluyor
+  // (ilgi alanları AuthContext'ten sonradan geliyor) ve ölçülmüş olsa bile
+  // şerit birkaç kez yeniden yerleşip kaydırmayı başa alıyor. Bu yüzden hedef
+  // kısa bir süre korunur ve her yerleşimde yeniden uygulanır.
+  const pendingScrollCatRef = useRef(null);
+
+  const applyPendingCatScroll = () => {
+    const pending = pendingScrollCatRef.current;
+    if (!pending) return;
+    if (Date.now() > pending.until) {
+      // Kategori ilgi alanlarından çıkarılmışsa çip hiç gelmez; hedef sonsuza
+      // dek beklemesin, sonraki bir yerleşimde beklenmedik yere kaymasın.
+      pendingScrollCatRef.current = null;
       return;
     }
+    const x = catChipX.current[pending.id];
+    if (x === undefined) return;
     catStripRef.current?.scrollTo({ x: Math.max(0, x - 16), animated: true });
+  };
+
+  const scrollCategoryIntoView = (catId) => {
+    pendingScrollCatRef.current = { id: catId, until: Date.now() + 4000 };
+    applyPendingCatScroll();
   };
 
   useEffect(() => {
@@ -549,7 +568,12 @@ export default function HomeScreen() {
         )}
       </View>
 
-      <ScrollView ref={catStripRef} horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 18 }} contentContainerStyle={{ gap: 8 }}>
+      <ScrollView ref={catStripRef} horizontal showsHorizontalScrollIndicator={false}
+        // Yerleşim/içerik boyutu her değiştiğinde bekleyen hedefe yeniden kayar
+        // (soğuk başlangıçta şerit birkaç kez yeniden yerleşiyor).
+        onLayout={applyPendingCatScroll}
+        onContentSizeChange={applyPendingCatScroll}
+        style={{ marginBottom: 18 }} contentContainerStyle={{ gap: 8 }}>
         {categories
           .filter((cat) => {
             const q = catSearch.trim().toLowerCase();
@@ -567,7 +591,12 @@ export default function HomeScreen() {
               delayLongPress={280}
               // Bildirimle gelen kategori şeridin dışında kalabiliyor; konumu
               // bilinmeden oraya kaydırılamaz.
-              onLayout={(e) => { if (cat.id) catChipX.current[cat.id] = e.nativeEvent.layout.x; }}
+              onLayout={(e) => {
+                if (!cat.id) return;
+                catChipX.current[cat.id] = e.nativeEvent.layout.x;
+                // Bildirim bu çipi bekliyorduysa ölçüm gelir gelmez kaydır.
+                if (pendingScrollCatRef.current?.id === cat.id) applyPendingCatScroll();
+              }}
               style={[styles.chip, active && styles.chipActive]}>
               <Text style={{ color: active ? colors.white : colors.textMuted, fontWeight: '600' }}>{cat.name}</Text>
             </Pressable>
