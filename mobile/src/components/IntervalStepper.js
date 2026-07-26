@@ -22,15 +22,20 @@ export function formatInterval(m) {
   return mm === 0 ? `${h} sa` : `${h} sa ${mm} dk`;
 }
 
-export default function IntervalStepper({ value, onChange, colors, hint = true }) {
+export default function IntervalStepper({
+  value, onChange, colors, hint = true,
+  // Sınırlar dışarıdan verilebilir: Ayarlar'daki kazıma aralığı şemadan
+  // (settings_store.SCRAPER_INTERVAL_*) geliyor, bildirim kuralları sabit.
+  min = INTERVAL_MIN, max = INTERVAL_MAX, step = INTERVAL_STEP,
+}) {
   const styles = makeStyles(colors);
-  const cur = Number(value) || INTERVAL_MIN;
+  const cur = Number(value) || min;
 
   const timerRef = useRef(null);
   const countRef = useRef(0);
   const valueRef = useRef(cur);   // tekrar sırasında anlık değer buradan okunur
 
-  useEffect(() => { valueRef.current = Number(value) || INTERVAL_MIN; }, [value]);
+  useEffect(() => { valueRef.current = Number(value) || min; }, [value, min]);
 
   const stop = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -43,7 +48,7 @@ export default function IntervalStepper({ value, onChange, colors, hint = true }
 
   const apply = (delta) => {
     const now = valueRef.current;
-    const next = Math.min(INTERVAL_MAX, Math.max(INTERVAL_MIN, now + delta));
+    const next = Math.min(max, Math.max(min, now + delta));
     if (next === now) return false;      // sınıra dayandı
     valueRef.current = next;
     onChange(next);
@@ -51,7 +56,7 @@ export default function IntervalStepper({ value, onChange, colors, hint = true }
   };
 
   const start = (dir) => {
-    apply(dir * INTERVAL_STEP);          // ilk dokunuşun kendisi
+    apply(dir * step);                   // ilk dokunuşun kendisi
     countRef.current = 0;
 
     const tick = () => {
@@ -59,15 +64,15 @@ export default function IntervalStepper({ value, onChange, colors, hint = true }
       const n = countRef.current;
       const mult = n > 20 ? 4 : n > 8 ? 2 : 1;
       const delay = n > 20 ? 60 : n > 8 ? 80 : 110;
-      if (!apply(dir * INTERVAL_STEP * mult)) { stop(); return; }
+      if (!apply(dir * step * mult)) { stop(); return; }
       timerRef.current = setTimeout(tick, delay);
     };
 
     timerRef.current = setTimeout(tick, 400);   // basılı tutma eşiği
   };
 
-  const atMin = cur <= INTERVAL_MIN;
-  const atMax = cur >= INTERVAL_MAX;
+  const atMin = cur <= min;
+  const atMax = cur >= max;
 
   return (
     <>
@@ -88,7 +93,7 @@ export default function IntervalStepper({ value, onChange, colors, hint = true }
       </View>
       {hint && (
         <Text style={{ color: colors.textFaint, fontSize: 11, marginTop: 6 }}>
-          15 dakikalık adımlarla · basılı tutunca hızlanır · 15 dk – 24 saat
+          {step} dakikalık adımlarla · basılı tutunca hızlanır · {formatInterval(min)} – {formatInterval(max)}
         </Text>
       )}
     </>

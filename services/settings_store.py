@@ -112,6 +112,7 @@ def set_many(db, user_id: int, values: dict) -> None:
     for key, value in values.items():
         if key not in MANAGED_KEYS:
             continue
+        value = _clamp_stepper(key, value)
         row = (
             db.query(models.UserSetting)
             .filter(models.UserSetting.user_id == user_id, models.UserSetting.key == key)
@@ -129,9 +130,36 @@ def set_many(db, user_id: int, values: dict) -> None:
     db.commit()
 
 
+def _clamp_stepper(key: str, value):
+    """Stepper alanlarını şemadaki min/max/step'e oturtur.
+
+    İstemci zaten sınırlıyor ama ayarlar düz key→value gövdesiyle geliyor;
+    bozuk bir değer (0, 7 dk) doğrudan kazıma sıklığına dönüşürdü.
+    """
+    spec = STEPPER_FIELDS.get(key)
+    if spec is None or value is None or value == "":
+        return value
+    try:
+        n = int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return ""                      # anlamsız değer → .env varsayılanına düş
+    step = spec.get("step", 1)
+    n = round(n / step) * step
+    return max(spec["min"], min(spec["max"], n))
+
+
 # ── Şema (Ayarlar ekranını hem web hem mobil için tanımlar) ───────────────────
-# Alan tipleri: "select" | "text" | "password"
+# Alan tipleri: "select" | "text" | "password" | "stepper"
+# stepper: sayısal, min/max/step ile sınırlı (−/+ butonlu). Sınırlar hem burada
+# hem istemcide geçerli; set_many yazmadan önce kırpar.
 # secret=True olan alanların değeri istemciye maskeli döner (is_set: bool).
+#
+# Kazıma aralığının sınırları — bildirim kuralı aralıklarıyla (rss_reader,
+# notifications, mobile/components/IntervalStepper) bilerek aynı.
+SCRAPER_INTERVAL_MIN = 15
+SCRAPER_INTERVAL_MAX = 1440
+SCRAPER_INTERVAL_STEP = 15
+
 # show_when: {"field": <selector_key>, "in": [<values>]} → yalnız ilgili sağlayıcı seçiliyse göster.
 
 SETTINGS_SCHEMA = [
@@ -286,6 +314,23 @@ SETTINGS_SCHEMA = [
              "show_when": {"field": "QUIET_HOURS_ENABLED", "in": ["true"]}},
         ],
     },
+    {
+        "id": "scraper",
+        "title": "Haber Kazıma",
+        "icon": "🕷️",
+        "required": False,
+        "note": "Akış haberlerinin ne sıklıkla taranacağı. Kısaltmak haberleri "
+                "tazeler ama sunucuyu ve kaynak siteleri daha çok yorar; bir tur "
+                "50–150 saniye sürüyor. Bildirim kuralları ancak akış tazelendiğinde "
+                "tetiklenir, yani bu değer bildirim gecikmesinin de alt sınırıdır.",
+        "fields": [
+            {"key": "SCRAPER_INTERVAL_MINUTES", "label": "Tarama Aralığı", "type": "stepper",
+             "min": SCRAPER_INTERVAL_MIN, "max": SCRAPER_INTERVAL_MAX,
+             # help yok: sınırları istemci zaten stepper'ın altında yazıyor,
+             # "nasıl alınır?" balonu bu alan için anlamsız olurdu.
+             "step": SCRAPER_INTERVAL_STEP},
+        ],
+    },
 ]
 
 # Anahtar başına "nasıl alınır?" bilgisi (adım + bağlantı). Tek kaynak; hem web
@@ -314,6 +359,8 @@ HELP = {
 # Şemadan türeyen düz kümeler.
 MANAGED_KEYS = {f["key"] for section in SETTINGS_SCHEMA for f in section["fields"]}
 SECRET_KEYS = {f["key"] for section in SETTINGS_SCHEMA for f in section["fields"] if f.get("secret")}
+STEPPER_FIELDS = {f["key"]: f for section in SETTINGS_SCHEMA for f in section["fields"]
+                  if f["type"] == "stepper"}
 
 
 def build_user_view(db, user_id: int) -> list:

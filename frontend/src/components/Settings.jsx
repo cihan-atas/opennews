@@ -18,7 +18,8 @@ function ApiKeysManager({ isMobile, showToast }) {
   const [draft, setDraft] = useState({});          // key -> düzenlenmiş değer
   const [secretSet, setSecretSet] = useState({});  // key -> gizli anahtar kayıtlı mı
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  // Hangi kart kaydediyor (grup id'si) — kartlar ayrı kaydediliyor.
+  const [saving, setSaving] = useState(null);
 
   useEffect(() => { load(); }, []);
 
@@ -46,38 +47,38 @@ function ApiKeysManager({ isMobile, showToast }) {
 
   const setVal = (key, value) => setDraft(prev => ({ ...prev, [key]: value }));
 
-  const handleSave = async () => {
-    setSaving(true);
+  /** Yalnızca verilen grubun alanlarını gönderir — her kartın kendi kaydı
+      (mobil SettingsScreen ile aynı davranış). */
+  const handleSave = async (group) => {
+    setSaving(group.id);
     // Payload: görünür alanları gönder. Gizli alanlarda yalnızca kullanıcı yeni değer
     // yazdıysa (boş değilse) gönder — boş = "dokunma".
     const values = {};
-    groups.forEach(g => g.fields.forEach(f => {
+    group.fields.forEach(f => {
       if (!fieldVisible(f, draft)) return;
       const v = draft[f.key] ?? '';
       if (f.secret) { if (v !== '') values[f.key] = v; }
       else { values[f.key] = v; }
-    }));
+    });
     try {
       const res = await fetchWithAuth(`${import.meta.env.VITE_API_URL}/settings`, {
         method: 'PUT',
         body: JSON.stringify({ values }),
       });
       if (!res.ok) throw new Error();
-      showToast('API ayarları kaydedildi.', 'success');
+      showToast(`${group.title} kaydedildi.`, 'success');
       await load();
     } catch (_) {
       showToast('Kaydedilemedi.', 'error');
     } finally {
-      setSaving(false);
+      setSaving(null);
     }
   };
 
   const s = {
     section: { background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '28px', padding: isMobile ? '1.5rem' : '2.5rem', gridColumn: isMobile ? 'auto' : 'span 2' },
-    group: { marginBottom: '2rem', paddingBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)' },
-    groupHead: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '4px' },
+    groupHead: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' },
     badgeReq: { fontSize: '0.65rem', fontWeight: 800, letterSpacing: '0.5px', color: '#fca5a5', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '3px 8px' },
-    badgeOpt: { fontSize: '0.65rem', fontWeight: 800, letterSpacing: '0.5px', color: '#94a3b8', background: 'rgba(148,163,184,0.12)', border: '1px solid rgba(148,163,184,0.25)', borderRadius: '8px', padding: '3px 8px' },
     note: { color: '#94a3b8', fontSize: '0.85rem', margin: '4px 0 16px', lineHeight: 1.5 },
     label: { display: 'block', color: '#cbd5e1', fontSize: '0.8rem', fontWeight: 700, marginBottom: '6px' },
     help: { color: '#64748b', fontSize: '0.72rem', marginTop: '4px' },
@@ -87,19 +88,24 @@ function ApiKeysManager({ isMobile, showToast }) {
 
   if (loading) return <div style={s.section}><p style={{ color: '#94a3b8' }}>API ayarları yükleniyor…</p></div>;
 
+  // Her grup kendi kartında ve kendi Kaydet'iyle. Tek bir dev kart hem karışıktı
+  // hem de anahtarla ilgisi olmayan alanları (sessiz saat, kazıma aralığı)
+  // "API Ayarlarını Kaydet" butonuna bağlıyordu.
   return (
-    <div style={s.section}>
-      <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.6rem' }}>🔑 API Anahtarları & Sağlayıcılar</h3>
-      <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: 0, marginBottom: '2rem' }}>
-        Kendi anahtarlarını gir — podcast'lerin senin anahtarlarınla üretilir. Her kategoride bir sağlayıcı seç ve <strong style={{ color: '#cbd5e1' }}>sadece onun</strong> anahtarını gir.
-        Boş bıraktığın alanlar sistemin varsayılanına düşer. Kırmızı <span style={{ color: '#fca5a5' }}>ZORUNLU</span> kategoriler podcast için gereklidir; diğerleri opsiyoneldir.
-      </p>
+    <>
+      <div style={s.section}>
+        <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.6rem' }}>🔑 API Anahtarları & Sağlayıcılar</h3>
+        <p style={{ color: '#64748b', fontSize: '0.85rem', margin: 0 }}>
+          Kendi anahtarlarını gir — podcast'lerin senin anahtarlarınla üretilir. Her başlıkta bir sağlayıcı seç ve <strong style={{ color: '#cbd5e1' }}>sadece onun</strong> anahtarını gir.
+          Boş bıraktığın alanlar sistemin varsayılanına düşer. Her bölüm ayrı kaydedilir.
+        </p>
+      </div>
 
       {groups.map(g => (
-        <div key={g.id} style={s.group}>
+        <div key={g.id} style={s.section}>
           <div style={s.groupHead}>
-            <span style={{ fontSize: '1.2rem', fontWeight: 800 }}>{g.icon} {g.title}</span>
-            <span style={g.required ? s.badgeReq : s.badgeOpt}>{g.required ? 'ZORUNLU' : 'OPSİYONEL'}</span>
+            <span style={{ fontSize: '1.4rem', fontWeight: 800 }}>{g.icon} {g.title}</span>
+            {g.required && <span style={s.badgeReq}>ZORUNLU</span>}
           </div>
           {g.note && <p style={s.note}>{g.note}</p>}
 
@@ -116,7 +122,17 @@ function ApiKeysManager({ isMobile, showToast }) {
                 )}
                 {f.secret && secretSet[f.key] && <span style={{ color: '#34d399', fontWeight: 600, marginLeft: '8px', fontSize: '0.72rem' }}>● kayıtlı</span>}
               </label>
-              {f.type === 'select' ? (
+              {f.type === 'stepper' ? (
+                // Sayısal ayar (kazıma aralığı). Sınırlar şemadan; sunucu da
+                // set_many'de aynı min/max/step'e kırpıyor.
+                <input
+                  style={s.input}
+                  type="number"
+                  min={f.min} max={f.max} step={f.step}
+                  value={draft[f.key] ?? ''}
+                  onChange={e => setVal(f.key, e.target.value)}
+                />
+              ) : f.type === 'select' ? (
                 <select style={s.input} value={draft[f.key] ?? ''} onChange={e => setVal(f.key, e.target.value)}>
                   {(f.options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
@@ -133,17 +149,17 @@ function ApiKeysManager({ isMobile, showToast }) {
               {f.help && <div style={s.help}>{f.help}</div>}
             </div>
           ))}
+
+          <button
+            onClick={() => handleSave(g)}
+            disabled={!!saving}
+            style={{ width: '100%', maxWidth: '400px', marginTop: '8px', padding: '14px', borderRadius: '14px', border: 'none', background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', color: 'white', fontWeight: 'bold', cursor: saving ? 'not-allowed' : 'pointer', boxShadow: '0 10px 20px -5px rgba(99, 102, 241, 0.3)' }}
+          >
+            {saving === g.id ? 'Kaydediliyor…' : 'Kaydet'}
+          </button>
         </div>
       ))}
-
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        style={{ width: '100%', maxWidth: '400px', padding: '14px', borderRadius: '14px', border: 'none', background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', color: 'white', fontWeight: 'bold', cursor: saving ? 'not-allowed' : 'pointer', boxShadow: '0 10px 20px -5px rgba(99, 102, 241, 0.3)' }}
-      >
-        {saving ? 'Kaydediliyor…' : 'API Ayarlarını Kaydet'}
-      </button>
-    </div>
+    </>
   );
 }
 

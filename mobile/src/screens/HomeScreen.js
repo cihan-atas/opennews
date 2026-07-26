@@ -17,6 +17,10 @@ import { useAuth } from '../contexts/AuthContext';
 import * as SecureStore from 'expo-secure-store';
 
 const PAGE_SIZE = 10;
+// Elle tazelemede sunucunun "bitti" demesi için beklenecek en uzun süre.
+// Ölçülen tur 50–150 sn; 4 dakika normal turu asla kesmez ama takılı bir
+// bayrak yüzünden ekran sonsuza dek "tazeleniyor" kalmaz.
+const REFRESH_TIMEOUT_MS = 4 * 60 * 1000;
 const SEARCH_HISTORY_KEY = 'searchHistory';
 
 export default function HomeScreen() {
@@ -407,19 +411,28 @@ export default function HomeScreen() {
     try {
       await apiFetch('/news/refresh', { method: 'POST' });
       if (refreshPoll.current) clearInterval(refreshPoll.current);
+
+      // Bitişi sunucudaki bayraktan öğreniyoruz; ama bayrak takılı kalabiliyor
+      // (bkz. worker.REFRESH_FLAG_KEY). O zaman liste hiç tazelenmiyor ve
+      // kullanıcı uygulamayı kapatıp açmak zorunda kalıyordu. Süre dolunca
+      // beklemeyi bırakıp yine de tazeliyoruz.
+      const deadline = Date.now() + REFRESH_TIMEOUT_MS;
+      const finish = (done) => {
+        clearInterval(refreshPoll.current);
+        refreshPoll.current = null;
+        setRefreshing(false);
+        setNotifBatch(null);
+        fetchNews(search, 1, activeCategoryId, multiCategoryIds);
+        setPage(1);
+        showToast(done ? '✅ Gündem güncellendi!' : 'Tarama uzun sürüyor; liste yine de tazelendi.');
+      };
+
       refreshPoll.current = setInterval(async () => {
         try {
           const st = await apiFetch('/news/refresh/status');
-          if (st.ok && (await st.json()).status === 'idle') {
-            clearInterval(refreshPoll.current);
-            refreshPoll.current = null;
-            setRefreshing(false);
-            setNotifBatch(null);
-            fetchNews(search, 1, activeCategoryId, multiCategoryIds);
-            setPage(1);
-            showToast('✅ Gündem güncellendi!');
-          }
+          if (st.ok && (await st.json()).status === 'idle') { finish(true); return; }
         } catch (_) {}
+        if (Date.now() > deadline) finish(false);
       }, 4000);
     } catch (_) {
       setRefreshing(false);

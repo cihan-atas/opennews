@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     # ve gece bildirim gidiyordu.
     APP_TIMEZONE: str = "Europe/Istanbul"
 
+    # Akış haberlerinin kazınma sıklığı (dakika). Beat 5 dakikada bir "sırası
+    # geldi mi?" diye bakar; asıl aralık burada. Kullanıcı Ayarlar → Haber
+    # Kazıma'dan 15 dk ile 24 saat arasında kendi değerini seçebilir; birden
+    # fazla kullanıcı varsa en kısa isteyen kazanır (kazıma ortak iş).
+    SCRAPER_INTERVAL_MINUTES: int = 15
+
     # Amazon Polly (TTS_PROVIDER=polly için)
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""

@@ -19,6 +19,69 @@ function fieldVisible(field, draft) {
   return (cond.in || []).includes(draft[cond.field]);
 }
 
+// Tek bir şema alanı. MODÜL DÜZEYİNDE tanımlı → TextInput'lar her tuşta
+// remount olmaz (klavye kapanma hatası).
+function SchemaField({ f, draft, setVal, secretSet, colors, styles }) {
+  return (
+    <View style={{ marginBottom: 12 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '700' }}>
+          {f.label}{f.required ? ' *' : ''}
+          {f.secret && secretSet[f.key] ? '  ● kayıtlı' : ''}
+        </Text>
+        {!!f.help && (
+          <Pressable
+            hitSlop={8}
+            onPress={() => Alert.alert(
+              `${f.label} — nasıl alınır?`,
+              f.help + (f.help_url ? `\n\n${f.help_url}` : ''),
+              f.help_url
+                ? [{ text: 'Aç', onPress: () => Linking.openURL(f.help_url) }, { text: 'Kapat', style: 'cancel' }]
+                : [{ text: 'Tamam' }],
+            )}
+            style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: colors.primaryLight, fontSize: 11, fontWeight: '800' }}>i</Text>
+          </Pressable>
+        )}
+      </View>
+      {f.type === 'stepper' ? (
+        // Sayısal ayar (kazıma aralığı): sınırlar şemadan geliyor,
+        // sunucu da set_many'de aynı sınırlara kırpıyor.
+        <IntervalStepper
+          value={draft[f.key]}
+          onChange={(v) => setVal(f.key, String(v))}
+          colors={colors}
+          min={f.min} max={f.max} step={f.step}
+        />
+      ) : f.type === 'select' ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {(f.options || []).map((o) => {
+            const on = (draft[f.key] ?? '') === o.value;
+            return (
+              <Pressable key={o.value} onPress={() => setVal(f.key, o.value)}
+                style={[styles.chip, on && styles.chipOn, { borderColor: colors.border }]}>
+                <Text style={{ color: on ? colors.white : colors.textMuted, fontWeight: '600', fontSize: 12 }}>{o.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : (
+        <TextInput
+          style={[styles.input, { borderColor: colors.border, color: colors.text, marginBottom: 0 }]}
+          value={draft[f.key] ?? ''}
+          onChangeText={(t) => setVal(f.key, t)}
+          secureTextEntry={f.type === 'password'}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder={f.secret && secretSet[f.key] ? '•••••••• (değiştirmek için yaz)' : ''}
+          placeholderTextColor={colors.textFaint}
+        />
+      )}
+      {!!f.help && <Text style={{ color: colors.textFaint, fontSize: 11, marginTop: 4 }}>{f.help}</Text>}
+    </View>
+  );
+}
+
 // Her kullanıcıya açık (BYOK): API anahtarları & sağlayıcılar (kategorilere ayrılmış).
 // MODÜL DÜZEYİNDE tanımlı → kimliği sabit, TextInput'lar her tuşta remount olmaz
 // (klavye kapanma hatasını önler). Şema backend'den (GET /settings) gelir.
@@ -27,7 +90,9 @@ function ApiKeysManagerMobile({ colors, styles, showToast }) {
   const [draft, setDraft] = useState({});
   const [secretSet, setSecretSet] = useState({});
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  // Hangi kart kaydediyor: 'api' | grup id'si | null. Kartlar ayrı kaydedildiği
+  // için tek bir boolean yetmiyor.
+  const [saving, setSaving] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -52,10 +117,11 @@ function ApiKeysManagerMobile({ colors, styles, showToast }) {
 
   const setVal = (key, value) => setDraft((p) => ({ ...p, [key]: value }));
 
-  const save = async () => {
-    setSaving(true);
+  /** Yalnızca verilen grupların alanlarını gönderir — her kartın kendi kaydı. */
+  const save = async (saveGroups, okMessage, busyId) => {
+    setSaving(busyId);
     const values = {};
-    groups.forEach((g) => g.fields.forEach((f) => {
+    saveGroups.forEach((g) => g.fields.forEach((f) => {
       if (!fieldVisible(f, draft)) return;
       const v = draft[f.key] ?? '';
       if (f.secret) { if (v !== '') values[f.key] = v; }
@@ -64,10 +130,10 @@ function ApiKeysManagerMobile({ colors, styles, showToast }) {
     try {
       const res = await apiFetch('/settings', { method: 'PUT', body: JSON.stringify({ values }) });
       if (!res.ok) throw new Error();
-      showToast('API ayarları kaydedildi.');
+      showToast(okMessage);
       await load();
     } catch (_) { showToast('Kaydedilemedi.', 'error'); }
-    finally { setSaving(false); }
+    finally { setSaving(null); }
   };
 
   if (loading) {
@@ -79,83 +145,47 @@ function ApiKeysManagerMobile({ colors, styles, showToast }) {
   }
 
   return (
-    <View style={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.borderSoft }]}>
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>🔑 API Anahtarları & Sağlayıcılar</Text>
-      <Text style={{ color: colors.textDim, fontSize: 13, marginBottom: 18, lineHeight: 19 }}>
-        Kendi anahtarlarını gir — podcast'lerin senin anahtarlarınla üretilir. Her kategoride bir
-        sağlayıcı seç ve sadece onun anahtarını gir. Boş bıraktıkların sistem varsayılanına düşer.
-        Kırmızı ZORUNLU kategoriler podcast için gereklidir; diğerleri opsiyoneldir.
-      </Text>
+    <>
+      {/* Her ayar grubu kendi kartında ve kendi Kaydet'iyle: tek bir dev kart
+          içinde hepsini birden kaydetmek hem karışıktı hem de ilgisiz alanları
+          (sessiz saat, kazıma aralığı) API anahtarlarına bağlıyordu. */}
+      <View style={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.borderSoft }]}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>🔑 API Anahtarları & Sağlayıcılar</Text>
+        <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 19 }}>
+          Kendi anahtarlarını gir — podcast'lerin senin anahtarlarınla üretilir. Her başlıkta bir
+          sağlayıcı seç ve sadece onun anahtarını gir; boş bıraktıkların sistem varsayılanına düşer.
+          Her bölüm ayrı kaydedilir.
+        </Text>
+      </View>
 
       {groups.map((g) => (
-        <View key={g.id} style={{ marginBottom: 18, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: colors.borderSoft }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-            <Text style={{ color: colors.text, fontSize: 15, fontWeight: '800' }}>{g.icon} {g.title}</Text>
-            <Text style={{
-              fontSize: 10, fontWeight: '800', letterSpacing: 0.5, overflow: 'hidden',
-              color: g.required ? '#fca5a5' : colors.textDim,
-              backgroundColor: g.required ? 'rgba(239,68,68,0.12)' : 'rgba(148,163,184,0.12)',
-              borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
-            }}>{g.required ? 'ZORUNLU' : 'OPSİYONEL'}</Text>
+        <View key={g.id} style={[styles.section, { backgroundColor: colors.surfaceAlpha, borderColor: colors.borderSoft }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+            <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}>{g.icon} {g.title}</Text>
+            {g.required && (
+              <Text style={{
+                fontSize: 10, fontWeight: '800', letterSpacing: 0.5, overflow: 'hidden',
+                color: '#fca5a5', backgroundColor: 'rgba(239,68,68,0.12)',
+                borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
+              }}>ZORUNLU</Text>
+            )}
           </View>
-          {!!g.note && <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 12, lineHeight: 17 }}>{g.note}</Text>}
+          {!!g.note && <Text style={{ color: colors.textDim, fontSize: 12.5, marginBottom: 14, lineHeight: 18 }}>{g.note}</Text>}
 
           {g.fields.filter((f) => fieldVisible(f, draft)).map((f) => (
-            <View key={f.key} style={{ marginBottom: 12 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '700' }}>
-                  {f.label}{f.required ? ' *' : ''}
-                  {f.secret && secretSet[f.key] ? '  ● kayıtlı' : ''}
-                </Text>
-                {!!f.help && (
-                  <Pressable
-                    hitSlop={8}
-                    onPress={() => Alert.alert(
-                      `${f.label} — nasıl alınır?`,
-                      f.help + (f.help_url ? `\n\n${f.help_url}` : ''),
-                      f.help_url
-                        ? [{ text: 'Aç', onPress: () => Linking.openURL(f.help_url) }, { text: 'Kapat', style: 'cancel' }]
-                        : [{ text: 'Tamam' }],
-                    )}
-                    style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ color: colors.primaryLight, fontSize: 11, fontWeight: '800' }}>i</Text>
-                  </Pressable>
-                )}
-              </View>
-              {f.type === 'select' ? (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {(f.options || []).map((o) => {
-                    const on = (draft[f.key] ?? '') === o.value;
-                    return (
-                      <Pressable key={o.value} onPress={() => setVal(f.key, o.value)}
-                        style={[styles.chip, on && styles.chipOn, { borderColor: colors.border }]}>
-                        <Text style={{ color: on ? colors.white : colors.textMuted, fontWeight: '600', fontSize: 12 }}>{o.label}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : (
-                <TextInput
-                  style={[styles.input, { borderColor: colors.border, color: colors.text, marginBottom: 0 }]}
-                  value={draft[f.key] ?? ''}
-                  onChangeText={(t) => setVal(f.key, t)}
-                  secureTextEntry={f.type === 'password'}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder={f.secret && secretSet[f.key] ? '•••••••• (değiştirmek için yaz)' : ''}
-                  placeholderTextColor={colors.textFaint}
-                />
-              )}
-              {!!f.help && <Text style={{ color: colors.textFaint, fontSize: 11, marginTop: 4 }}>{f.help}</Text>}
-            </View>
+            <SchemaField key={f.key} f={f} draft={draft} setVal={setVal}
+              secretSet={secretSet} colors={colors} styles={styles} />
           ))}
+
+          <Pressable onPress={() => save([g], `${g.title} kaydedildi.`, g.id)}
+            disabled={!!saving} style={[styles.primaryBtn, { marginTop: 6 }]}>
+            <Text style={styles.primaryBtnText}>
+              {saving === g.id ? 'Kaydediliyor…' : 'Kaydet'}
+            </Text>
+          </Pressable>
         </View>
       ))}
-
-      <Pressable onPress={save} disabled={saving} style={styles.primaryBtn}>
-        <Text style={styles.primaryBtnText}>{saving ? 'Kaydediliyor…' : 'API Ayarlarını Kaydet'}</Text>
-      </Pressable>
-    </View>
+    </>
   );
 }
 

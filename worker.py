@@ -42,14 +42,15 @@ celery_app.conf.beat_schedule = {
         "options": {"queue": "notify_queue"},
     },
     # Akış haberleri bizim kazıma hattımızdan geliyor; bildirim kuralları ancak
-    # tablo tazelenirse tetikleniyordu. Saatte bir tam tur: ölçülen tur süresi
-    # 50–150 sn ve neredeyse tamamı ağ beklemesi.
-    "run-scraper-hourly": {
-        "task": "run_scraper",
-        "schedule": 3600.0,
-        # Tur uzarsa kuyrukta iş birikmesin: 30 dk içinde başlayamayan tetikleme
-        # düşer, bir sonraki saatlik tur zaten gelecek.
-        "options": {"queue": "scraper_queue", "expires": 1800},
+    # tablo tazelenirse tetikleniyordu. Aralık artık sabit değil: kullanıcı
+    # Ayarlar → Haber Kazıma'dan seçiyor (15 dk – 24 sa). Beat 5 dakikada bir
+    # "sırası geldi mi?" diye soruyor, kararı tick_scraper veriyor.
+    "scraper-tick": {
+        "task": "tick_scraper",
+        "schedule": 300.0,
+        # Tetikleme birikmesin: 5 dk içinde ele alınamayan tick düşer, bir
+        # sonraki zaten geliyor.
+        "options": {"queue": "scraper_queue", "expires": 290},
     },
 }
 
@@ -485,6 +486,25 @@ def _notify_user(db, user_id: int, news_title: str) -> None:
 # kilidi sonsuza kadar tutmasın, ama normal tur asla kendini kesmesin.
 SCRAPER_LOCK_KEY = "scraper:running"
 SCRAPER_LOCK_TTL = 900          # 15 dk
+# Akış'taki "Yenile" butonunun izlediği bayrak: POST /news/refresh set eder,
+# GET /news/refresh/status okur. Sahibi bu görev — çünkü tur hiç başlamasa bile
+# (kilit dolu, hata) temizlenmesi gerekiyor. Temizlenmediğinde uygulama 10 dakika
+# boyunca "tazeleniyor" kalıp listeyi hiç yenilemiyor, kullanıcı uygulamayı
+# kapatıp açmak zorunda kalıyordu.
+REFRESH_FLAG_KEY = "scraper_running"
+# Süren bir turu beklerken bayrağın en fazla yaşayacağı süre. Tur normalde
+# 50–150 sn'de bitip bayrağı kendisi siler; bu TTL yalnızca takılı kilit
+# senaryosunda devreye girer.
+REFRESH_FLAG_WAIT_TTL = 180
+
+
+def _clear_refresh_flag(client) -> None:
+    if client is None:
+        return
+    try:
+        client.delete(REFRESH_FLAG_KEY)
+    except Exception:
+        pass          # TTL zaten temizler
 
 
 @celery_app.task(name="run_scraper", queue="scraper_queue")
@@ -502,6 +522,14 @@ def run_scraper_task():
     if lock is not None:
         if not lock.set(SCRAPER_LOCK_KEY, "1", nx=True, ex=SCRAPER_LOCK_TTL):
             print("[Kazıma] Zaten bir tur çalışıyor, bu tetikleme atlandı.")
+            # Bayrağı silmiyoruz: süren tur birazdan bitip kendisi silecek ve
+            # uygulama o turun getirdiği haberlerle tazelenecek. Ama kilit takılı
+            # kalmışsa (çöken worker) kimse silmez; bayrağın ömrünü kısaltıyoruz
+            # ki ekran 10 dakika değil, en fazla bir tur boyu beklesin.
+            try:
+                lock.expire(REFRESH_FLAG_KEY, REFRESH_FLAG_WAIT_TTL)
+            except Exception:
+                pass
             return {"status": "already_running"}
 
     try:
@@ -519,6 +547,87 @@ def run_scraper_task():
                 lock.delete(SCRAPER_LOCK_KEY)
             except Exception:
                 pass          # TTL zaten temizler
+        # scrape_to_db normalde bunu kendi finally'sinde siliyor; ama kendi
+        # is_currently_scraping guard'ına takılıp erken dönerse silmiyordu.
+        _clear_refresh_flag(lock)
+
+
+SCRAPER_LAST_RUN_KEY = "scraper:last_run"
+# Beat 5 dakikada bir tick atıyor; "geçen süre >= aralık" katı okunursa 15 dk'lık
+# ayar fiilen 20 dk'ya kayar (14:58'de geçen süre 14:55, bir tick daha bekler).
+# Yarım tick tolerans bu kaymayı önler.
+SCRAPER_TICK_TOLERANCE = 150
+# Redis yoksa (cache istemcisi kurulamadıysa) son tur zamanı süreç içinde tutulur.
+_scraper_last_run_local = 0.0
+
+
+def effective_scraper_interval_minutes() -> int:
+    """Kazımanın etkin aralığı (dakika).
+
+    Kazıma ortak iş: tek bir haber tablosu var, kullanıcı başına ayrı tur
+    atılmıyor. Bu yüzden en kısa aralığı isteyen kullanıcı belirleyici oluyor —
+    herkes en azından istediği tazelikte haber görüyor. Kimse ayar girmemişse
+    .env varsayılanı geçerli.
+    """
+    default = settings.SCRAPER_INTERVAL_MINUTES
+    lo, hi = settings_store.SCRAPER_INTERVAL_MIN, settings_store.SCRAPER_INTERVAL_MAX
+    values = []
+    db = SessionLocal()
+    try:
+        rows = db.query(models.UserSetting.value).filter(
+            models.UserSetting.key == "SCRAPER_INTERVAL_MINUTES").all()
+        for (raw,) in rows:
+            try:
+                values.append(int(raw))
+            except (TypeError, ValueError):
+                continue
+    except Exception as exc:
+        print(f"[Kazıma] Kullanıcı aralığı okunamadı, varsayılan kullanılıyor: {exc}")
+    finally:
+        db.close()
+
+    chosen = min(values) if values else default
+    return max(lo, min(hi, int(chosen)))
+
+
+@celery_app.task(name="tick_scraper", queue="scraper_queue")
+def tick_scraper_task():
+    """Kazımanın sırası geldiyse tam turu tetikler.
+
+    Aralık kullanıcı ayarı olduğu için beat'e sabit yazılamıyor; beat sabit
+    5 dk'da bir tick atıyor, sıra kontrolü burada.
+    """
+    global _scraper_last_run_local
+    interval = effective_scraper_interval_minutes()
+    now = time.time()
+    due_after = interval * 60 - SCRAPER_TICK_TOLERANCE
+
+    r = rss_service.shared_redis()
+    if r is not None:
+        try:
+            raw = r.get(SCRAPER_LAST_RUN_KEY)
+            last = float(raw) if raw else 0.0
+        except Exception:
+            last = _scraper_last_run_local
+    else:
+        last = _scraper_last_run_local
+
+    if last and now - last < due_after:
+        return {"status": "not_due", "interval_minutes": interval,
+                "next_in_seconds": int(due_after - (now - last))}
+
+    _scraper_last_run_local = now
+    if r is not None:
+        try:
+            # Aralığın iki katı TTL: kayıt düşse bile en kötü ihtimalle bir tur
+            # erken kazınır, sonsuza kadar "hiç kazınmadı" durumuna düşmez.
+            r.setex(SCRAPER_LAST_RUN_KEY, int(interval * 120), str(now))
+        except Exception:
+            pass
+
+    print(f"[Kazıma] Tur tetiklendi (aralık {interval} dk).")
+    run_scraper_task.apply_async(queue="scraper_queue", expires=interval * 60)
+    return {"status": "triggered", "interval_minutes": interval}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
