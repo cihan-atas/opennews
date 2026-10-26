@@ -31,67 +31,57 @@ _PHONETIZE_CACHE: dict[str, str] = {}
 _PHONETIZE_CACHE_MAX = 512
 
 
-def generate(prompt: str, quality: bool = False, temperature: float = None, system_prompt: str = None) -> str:
-    """Verilen prompt için düz metin yanıtı döner.
-    quality=True → daha iyi model (podcast script, çeviri gibi önemli işler).
-    quality=False → hızlı/yüksek-limitli model (haber özeti gibi toplu işler).
-    """
-    provider = settings.AI_PROVIDER
-    if provider == "gemini":
-        try:
-            return _gemini_generate(prompt, temperature=temperature, system_prompt=system_prompt)
-        except Exception as e:
-            print(f"[AI] Gemini failed: {e}")
-            if settings.GROQ_API_KEY:
-                print("[AI] Falling back to Groq...")
-                kwargs = {}
-                if temperature is not None:
-                    kwargs["temperature"] = temperature
-                if system_prompt is not None:
-                    kwargs["system_prompt"] = system_prompt
-                try:
-                    return _groq_generate(prompt, quality=quality, **kwargs)
-                except Exception as ge:
-                    print(f"[AI] Fallback Groq failed: {ge}")
-            if settings.OPENROUTER_API_KEY:
-                print("[AI] Falling back to OpenRouter...")
-                try:
-                    return _openrouter_generate(prompt)
-                except Exception as oe:
-                    print(f"[AI] Fallback OpenRouter failed: {oe}")
-            raise
-    if provider == "groq":
+def _call_provider(prov: str, prompt: str, quality: bool = False, temperature: float = None, system_prompt: str = None) -> str:
+    if prov == "gemini":
+        return _gemini_generate(prompt, temperature=temperature, system_prompt=system_prompt)
+    if prov == "groq":
         kwargs = {}
         if temperature is not None:
             kwargs["temperature"] = temperature
         if system_prompt is not None:
             kwargs["system_prompt"] = system_prompt
-        try:
-            return _groq_generate(prompt, quality=quality, **kwargs)
-        except Exception as e:
-            print(f"[AI] Groq failed: {e}")
-            if settings.GEMINI_API_KEY:
-                print("[AI] Falling back to Gemini...")
-                try:
-                    return _gemini_generate(prompt, temperature=temperature, system_prompt=system_prompt)
-                except Exception as ge:
-                    print(f"[AI] Fallback Gemini failed: {ge}")
-            if settings.OPENROUTER_API_KEY:
-                print("[AI] Falling back to OpenRouter...")
-                try:
-                    return _openrouter_generate(prompt)
-                except Exception as oe:
-                    print(f"[AI] Fallback OpenRouter failed: {oe}")
-            raise
-    if provider == "openai":
-        return _openai_generate(prompt)
-    if provider == "openrouter":
-        return _openrouter_generate(prompt)
-    if provider == "nvidia":
-        return _nvidia_generate(prompt)
-    if provider == "mock":
+        return _groq_generate(prompt, quality=quality, **kwargs)
+    if prov == "openrouter":
+        return _openrouter_generate(prompt, temperature=temperature, system_prompt=system_prompt)
+    if prov == "nvidia":
+        return _nvidia_generate(prompt, temperature=temperature, system_prompt=system_prompt)
+    if prov == "openai":
+        return _openai_generate(prompt, temperature=temperature, system_prompt=system_prompt)
+    if prov == "mock":
         return _mock_generate(prompt)
     return _vertex_generate(prompt)
+
+
+def generate(prompt: str, quality: bool = False, temperature: float = None, system_prompt: str = None) -> str:
+    """Verilen prompt için düz metin yanıtı döner.
+    quality=True → daha iyi model (podcast script, çeviri gibi önemli işler).
+    quality=False → hızlı/yüksek-limitli model (haber özeti gibi toplu işler).
+    """
+    primary = settings.AI_PROVIDER
+    try:
+        return _call_provider(primary, prompt, quality=quality, temperature=temperature, system_prompt=system_prompt)
+    except Exception as e:
+        print(f"[AI] Primary provider '{primary}' failed: {e}")
+        # Çok katmanlı yedek zinciri: ana sağlayıcı haricinde anahtarı girilmiş olanları sırayla dene
+        fallbacks = []
+        if primary != "groq" and getattr(settings, "GROQ_API_KEY", None):
+            fallbacks.append("groq")
+        if primary != "gemini" and getattr(settings, "GEMINI_API_KEY", None):
+            fallbacks.append("gemini")
+        if primary != "openrouter" and getattr(settings, "OPENROUTER_API_KEY", None):
+            fallbacks.append("openrouter")
+        if primary != "nvidia" and getattr(settings, "NVIDIA_API_KEY", None):
+            fallbacks.append("nvidia")
+        if primary != "openai" and getattr(settings, "OPENAI_API_KEY", None):
+            fallbacks.append("openai")
+
+        for fallback_prov in fallbacks:
+            print(f"[AI] Falling back to '{fallback_prov}'...")
+            try:
+                return _call_provider(fallback_prov, prompt, quality=quality, temperature=temperature, system_prompt=system_prompt)
+            except Exception as fe:
+                print(f"[AI] Fallback '{fallback_prov}' failed: {fe}")
+        raise
 
 
 def translate(text: str, target_lang: str) -> str:
@@ -247,21 +237,11 @@ Metin:
 
     sys_prompt = "Sen gelişmiş bir Türkçe TTS hazırlık asistanısın. Görevin, verilen metindeki İngilizce kelimeleri Türkçe fonetik yazımlarıyla değiştirmek ve sadece düz metin döndürmektir."
     result = None
-    if settings.AI_PROVIDER == "gemini":
-        try:
-            result = _gemini_generate(prompt, temperature=0.1, system_prompt=sys_prompt)
-        except Exception as e:
-            print(f"[AI] Phonetization Gemini failed: {e}")
-    else:
-        try:
-            result = _groq_generate(prompt, quality=True, temperature=0.1, system_prompt=sys_prompt)
-        except Exception as e:
-            print(f"[AI] Phonetization Groq failed: {e}")
-            if settings.GEMINI_API_KEY:
-                try:
-                    result = _gemini_generate(prompt, temperature=0.1, system_prompt=sys_prompt)
-                except Exception as ge:
-                    print(f"[AI] Phonetization Gemini fallback failed: {ge}")
+    try:
+        result = generate(prompt, quality=True, temperature=0.1, system_prompt=sys_prompt)
+    except Exception as e:
+        print(f"[AI] Phonetization failed: {e}")
+        return text
 
     if not result:
         return text
@@ -314,6 +294,9 @@ def _groq_generate(prompt: str, quality: bool = False, model: str = None, temper
     client = _get_groq_client()
     if model is None:
         model = settings.GROQ_QUALITY_MODEL if quality else settings.GROQ_MODEL
+    # Eski/kaldırılmış modelleri güncel çalışan modellere eşle
+    if not model or model in ("llama-3.1-8b-instant", "llama-3.3-70b-versatile", "qwen3-32b", "llama-4-scout"):
+        model = "openai/gpt-oss-120b" if quality else "openai/gpt-oss-20b"
     sys_content = system_prompt if system_prompt else "You are a helpful assistant. Respond directly without any thinking process."
     # gpt-oss reasoning modelleri: reasoning token'ları completion bütçesinden yenir.
     # 'low' efor + daha geniş max_tokens → içeriğin boş dönmesini önler, hızlanır.
@@ -336,48 +319,77 @@ def _groq_generate(prompt: str, quality: bool = False, model: str = None, temper
 
 
 # ── OpenRouter (~50 istek/gün ücretsiz) ──────────────────────────────────────
-def _openrouter_generate(prompt: str) -> str:
+def _openrouter_generate(prompt: str, temperature: float = None, system_prompt: str = None) -> str:
     from openai import OpenAI
     client = OpenAI(
         api_key=settings.OPENROUTER_API_KEY,
         base_url="https://openrouter.ai/api/v1",
     )
+    model = settings.OPENROUTER_MODEL
+    # OpenRouter'da artık sunulmayan eski free modelleri openrouter/free'ye yönlendir
+    if not model or ("meta-llama" in model and ":free" in model):
+        model = "openrouter/free"
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    extra = {}
+    if temperature is not None:
+        extra["temperature"] = temperature
     response = client.chat.completions.create(
-        model=settings.OPENROUTER_MODEL,
-        messages=[{"role": "user", "content": prompt}],
+        model=model,
+        messages=messages,
+        max_tokens=4096,
         extra_headers={
-            "HTTP-Referer": settings.FRONTEND_URL,
+            "HTTP-Referer": getattr(settings, "FRONTEND_URL", "https://opennews.app"),
             "X-Title": "OpenNews",
         },
+        **extra,
     )
-    return _strip_think(response.choices[0].message.content.strip())
+    return _strip_think(response.choices[0].message.content or "").strip()
 
 
 # ── NVIDIA NIM (1000 toplam ücretsiz kredi) ───────────────────────────────────
-def _nvidia_generate(prompt: str) -> str:
+def _nvidia_generate(prompt: str, temperature: float = None, system_prompt: str = None) -> str:
     from openai import OpenAI
     client = OpenAI(
         api_key=settings.NVIDIA_API_KEY,
         base_url="https://integrate.api.nvidia.com/v1",
     )
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    extra = {}
+    if temperature is not None:
+        extra["temperature"] = temperature
     response = client.chat.completions.create(
         model=settings.NVIDIA_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.6,
-        max_tokens=1024,
+        messages=messages,
+        max_tokens=4096,
+        **extra,
     )
-    return response.choices[0].message.content.strip()
+    return _strip_think(response.choices[0].message.content or "").strip()
 
 
 # ── OpenAI ───────────────────────────────────────────────────────────────────
-def _openai_generate(prompt: str) -> str:
+def _openai_generate(prompt: str, temperature: float = None, system_prompt: str = None) -> str:
     from openai import OpenAI
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    extra = {}
+    if temperature is not None:
+        extra["temperature"] = temperature
     response = client.chat.completions.create(
         model=settings.OPENAI_CHAT_MODEL,
-        messages=[{"role": "user", "content": prompt}],
+        messages=messages,
+        max_tokens=4096,
+        **extra,
     )
-    return response.choices[0].message.content.strip()
+    return _strip_think(response.choices[0].message.content or "").strip()
 
 
 # ── Vertex (Gemini) ──────────────────────────────────────────────────────────

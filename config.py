@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     # OpenAI (AI_PROVIDER/EMBEDDING_PROVIDER=openai için)
     OPENAI_API_KEY: str = ""
     OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
+    OPENAI_CUSTOM_MODEL: str = ""
     OPENAI_EMBED_MODEL: str = "text-embedding-3-small"
 
     # Groq — ücretsiz (AI_PROVIDER=groq için) ← önerilen
@@ -47,6 +48,7 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "openai/gpt-oss-20b"
     # Kalite model: podcast script, çeviri, daha az ama önemli işler
     GROQ_QUALITY_MODEL: str = "openai/gpt-oss-120b"
+    GROQ_CUSTOM_MODEL: str = ""
     # Segment model: TR/EN dil ayrımı — hız için 20b yeterli
     GROQ_SEGMENT_MODEL: str = "openai/gpt-oss-20b"
     # STT: konuşmadan metne (podcast transkripti)
@@ -55,16 +57,19 @@ class Settings(BaseSettings):
 
     # OpenRouter — ~50 istek/gün ücretsiz (AI_PROVIDER=openrouter için)
     OPENROUTER_API_KEY: str = ""
-    OPENROUTER_MODEL: str = "meta-llama/llama-3.1-8b-instruct:free"
+    OPENROUTER_MODEL: str = "openrouter/free"
+    OPENROUTER_CUSTOM_MODEL: str = ""
 
     # NVIDIA NIM — 1000 toplam ücretsiz kredi, sonra ücretli (AI_PROVIDER=nvidia için)
     # Key: build.nvidia.com → Get API Key
     NVIDIA_API_KEY: str = ""
-    NVIDIA_MODEL: str = "meta/llama-3.1-8b-instruct"
+    NVIDIA_MODEL: str = "meta/llama-3.3-70b-instruct"
+    NVIDIA_CUSTOM_MODEL: str = ""
 
     # Gemini API (AI_PROVIDER=gemini için)
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_CUSTOM_MODEL: str = ""
 
     # Yerel embedding (EMBEDDING_PROVIDER=local için — ücretsiz, Türkçe dahil 50+ dil)
     # paraphrase-multilingual-mpnet-base-v2 → 768-dim, DB migration gerektirmez

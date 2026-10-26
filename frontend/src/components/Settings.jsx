@@ -134,15 +134,25 @@ function ApiKeysManager({ isMobile, showToast }) {
                   onChange={e => setVal(f.key, e.target.value)}
                 />
               ) : f.type === 'select' ? (
-                <select style={s.input} value={draft[f.key] ?? ''} onChange={e => setVal(f.key, e.target.value)}>
-                  {(f.options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
+                <div>
+                  <select style={s.input} value={draft[f.key] ?? ''} onChange={e => setVal(f.key, e.target.value)}>
+                    {(f.options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  {(() => {
+                    const selected = (f.options || []).find(o => o.value === (draft[f.key] ?? ''));
+                    return selected?.desc ? (
+                      <div style={{ marginTop: '6px', fontSize: '0.78rem', color: '#93c5fd', background: 'rgba(59, 130, 246, 0.1)', padding: '6px 10px', borderRadius: '8px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                        💡 {selected.desc}
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
               ) : (
                 <input
                   style={s.input}
                   type={f.type === 'password' ? 'password' : 'text'}
                   value={draft[f.key] ?? ''}
-                  placeholder={f.secret && secretSet[f.key] ? '•••••••• (değiştirmek için yaz)' : ''}
+                  placeholder={f.placeholder || (f.secret && secretSet[f.key] ? '•••••••• (değiştirmek için yaz)' : '')}
                   autoComplete="off"
                   onChange={e => setVal(f.key, e.target.value)}
                 />

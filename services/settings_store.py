@@ -83,11 +83,29 @@ def _cast(raw, env_default):
     return raw
 
 
+_MODEL_CUSTOM_MAP = {
+    "GROQ_QUALITY_MODEL": "GROQ_CUSTOM_MODEL",
+    "GEMINI_MODEL": "GEMINI_CUSTOM_MODEL",
+    "OPENROUTER_MODEL": "OPENROUTER_CUSTOM_MODEL",
+    "NVIDIA_MODEL": "NVIDIA_CUSTOM_MODEL",
+    "OPENAI_CHAT_MODEL": "OPENAI_CUSTOM_MODEL",
+}
+
+
 def get(key: str, default=None):
     """Etkin değer: aktif kullanıcının ayarı → .env → default."""
     env_default = getattr(_env, key, default)
     ctx = _current_user.get()
     raw = ctx.get(key) if ctx else None
+
+    # Eğer özel model ("custom") seçilmişse, ilgili custom alanın değerini döndür
+    if key in _MODEL_CUSTOM_MAP and raw == "custom":
+        custom_key = _MODEL_CUSTOM_MAP[key]
+        custom_val = ctx.get(custom_key) if ctx else None
+        if custom_val and str(custom_val).strip():
+            return str(custom_val).strip()
+        return env_default
+
     if raw is None or raw == "":
         return env_default
     return _cast(raw, env_default)
@@ -172,33 +190,98 @@ SETTINGS_SCHEMA = [
         "fields": [
             {"key": "AI_PROVIDER", "label": "Sağlayıcı", "type": "select", "required": True,
              "options": [
-                 {"value": "groq", "label": "Groq (ücretsiz, hızlı) — önerilen"},
-                 {"value": "gemini", "label": "Google Gemini"},
+                 {"value": "groq", "label": "Groq (ücretsiz, ultra hızlı) — önerilen"},
+                 {"value": "gemini", "label": "Google Gemini (ücretsiz kota)"},
+                 {"value": "openrouter", "label": "OpenRouter (birçok ücretsiz model)"},
+                 {"value": "nvidia", "label": "NVIDIA NIM (1000 ücretsiz kredi)"},
                  {"value": "openai", "label": "OpenAI"},
-                 {"value": "openrouter", "label": "OpenRouter"},
-                 {"value": "nvidia", "label": "NVIDIA NIM"},
                  {"value": "mock", "label": "Mock (anahtarsız, test)"},
              ]},
+            # --- Groq ---
             {"key": "GROQ_API_KEY", "label": "Groq API Key", "type": "password", "secret": True,
              "required": True, "help": "console.groq.com → API Keys", "show_when": {"field": "AI_PROVIDER", "in": ["groq"]}},
-            {"key": "GROQ_QUALITY_MODEL", "label": "Groq Kalite Modeli (opsiyonel)", "type": "text",
+            {"key": "GROQ_QUALITY_MODEL", "label": "Groq Modeli", "type": "select",
+             "options": [
+                 {"value": "openai/gpt-oss-120b", "label": "GPT-OSS 120B (En Yüksek Kalite)", "desc": "120B açık ağırlıklı model, derin muhakeme ve podcast anlatımı"},
+                 {"value": "openai/gpt-oss-20b", "label": "GPT-OSS 20B (Ultra Hızlı)", "desc": "~1000 token/s hız, seri haber özetleme"},
+                 {"value": "qwen/qwen3.8-27b", "label": "Qwen 3.8 27B (Güçlü Türkçe)", "desc": "27B parametreli model, mükemmel Türkçe dil ve mantık yeteneği"},
+                 {"value": "allam-2-7b", "label": "Allam 2 7B", "desc": "Hafif ve hızlı alternatif model"},
+                 {"value": "custom", "label": "✏️ Özel Model (Elle Girin)", "desc": "Groq kütüphanesinden farklı bir model adı yazın"},
+             ],
              "show_when": {"field": "AI_PROVIDER", "in": ["groq"]}},
+            {"key": "GROQ_CUSTOM_MODEL", "label": "Özel Groq Model Adı", "type": "text",
+             "placeholder": "örn: meta-llama/llama-4-scout",
+             "show_when": {"field": "GROQ_QUALITY_MODEL", "in": ["custom"]}},
+
+            # --- Gemini ---
             {"key": "GEMINI_API_KEY", "label": "Gemini API Key", "type": "password", "secret": True,
              "required": True, "help": "aistudio.google.com → API Key", "show_when": {"field": "AI_PROVIDER", "in": ["gemini"]}},
-            {"key": "GEMINI_MODEL", "label": "Gemini Modeli (opsiyonel)", "type": "text",
+            {"key": "GEMINI_MODEL", "label": "Gemini Modeli", "type": "select",
+             "options": [
+                 {"value": "gemini-2.5-flash", "label": "Gemini 2.5 Flash (Önerilen)", "desc": "En dengeli, yüksek hızlı ve zengin Türkçe destekli model"},
+                 {"value": "gemini-2.5-flash-lite", "label": "Gemini 2.5 Flash-Lite (Hafif & Hızlı)", "desc": "En yüksek ücretsiz istek kotası ve anlık hız"},
+                 {"value": "gemini-2.5-pro", "label": "Gemini 2.5 Pro (Yüksek Muhakeme)", "desc": "Karmaşık görevler ve derin senaryolar için en güçlü model"},
+                 {"value": "gemini-3.1-flash-lite", "label": "Gemini 3.1 Flash-Lite (Yeni)", "desc": "Yeni nesil hafif ve hızlı Flash mimarisi"},
+                 {"value": "gemini-3.5-flash", "label": "Gemini 3.5 Flash (Yeni)", "desc": "Yeni nesil yüksek performanslı Flash"},
+                 {"value": "custom", "label": "✏️ Özel Model (Elle Girin)", "desc": "Google AI Studio'dan farklı bir model adı yazın"},
+             ],
              "show_when": {"field": "AI_PROVIDER", "in": ["gemini"]}},
+            {"key": "GEMINI_CUSTOM_MODEL", "label": "Özel Gemini Model Adı", "type": "text",
+             "placeholder": "örn: gemini-3.8-flash",
+             "show_when": {"field": "GEMINI_MODEL", "in": ["custom"]}},
+
+            # --- OpenRouter ---
+            {"key": "OPENROUTER_API_KEY", "label": "OpenRouter API Key", "type": "password", "secret": True,
+             "required": True, "help": "openrouter.ai → Keys", "show_when": {"field": "AI_PROVIDER", "in": ["openrouter"]}},
+            {"key": "OPENROUTER_MODEL", "label": "OpenRouter Modeli", "type": "select",
+             "options": [
+                 {"value": "openrouter/free", "label": "Auto-Free (Otomatik En İyi Ücretsiz)", "desc": "Aktif olan en iyi ücretsiz modele otomatik yönlendirir (önerilen)"},
+                 {"value": "google/gemma-4-31b-it:free", "label": "Google Gemma 4 31B (Ücretsiz)", "desc": "Google'ın gelişmiş açık kaynaklı Gemma 4 modeli"},
+                 {"value": "google/gemma-4-26b-a4b-it:free", "label": "Google Gemma 4 26B MoE (Ücretsiz)", "desc": "Google Gemma 4 Mixture-of-Experts mimarisi"},
+                 {"value": "nvidia/nemotron-3-super-120b-a12b:free", "label": "NVIDIA Nemotron 3 120B (Ücretsiz)", "desc": "120B parametreli devasa açık model"},
+                 {"value": "nvidia/nemotron-3.5-lightning:free", "label": "NVIDIA Nemotron 3.5 (Ücretsiz)", "desc": "NVIDIA hızlı optimize akıl yürütme modeli"},
+                 {"value": "liquid/lfm-2.5-2.6b:free", "label": "Liquid LFM 2.5 (Ücretsiz)", "desc": "Ultra hafif ve hızlı açık model"},
+                 {"value": "dots-studio/dots-3-note-preview:free", "label": "Dots 3 Note (Ücretsiz)", "desc": "Not ve özetleme odaklı açık model"},
+                 {"value": "custom", "label": "✏️ Özel Model (Elle Girin)", "desc": "OpenRouter kütüphanesinden dilediğiniz modeli yazın (:free ekleyebilirsiniz)"},
+             ],
+             "show_when": {"field": "AI_PROVIDER", "in": ["openrouter"]}},
+            {"key": "OPENROUTER_CUSTOM_MODEL", "label": "Özel OpenRouter Model Adı", "type": "text",
+             "placeholder": "örn: meta-llama/llama-3.2-3b-instruct:free",
+             "show_when": {"field": "OPENROUTER_MODEL", "in": ["custom"]}},
+
+            # --- NVIDIA NIM ---
+            {"key": "NVIDIA_API_KEY", "label": "NVIDIA API Key", "type": "password", "secret": True,
+             "required": True, "help": "build.nvidia.com → Get API Key (1000 kredi ücretsiz)", "show_when": {"field": "AI_PROVIDER", "in": ["nvidia"]}},
+            {"key": "NVIDIA_MODEL", "label": "NVIDIA Modeli", "type": "select",
+             "options": [
+                 {"value": "meta/llama-3.3-70b-instruct", "label": "Llama 3.3 70B Instruct (Önerilen)", "desc": "NVIDIA NIM hızlandırmalı Llama 3.3 70B, üstün zeka"},
+                 {"value": "deepseek-ai/deepseek-r1", "label": "DeepSeek R1 (Akıl Yürütme)", "desc": "NVIDIA NIM üzerinde DeepSeek R1 reasoning modeli"},
+                 {"value": "meta/llama-3.1-70b-instruct", "label": "Llama 3.1 70B Instruct", "desc": "Yüksek doğruluk ve bağlam kavrama"},
+                 {"value": "meta/llama-3.1-8b-instruct", "label": "Llama 3.1 8B Instruct (Ultra Hızlı)", "desc": "Çok düşük gecikmeli hafif model"},
+                 {"value": "mistralai/mistral-large-2-instruct", "label": "Mistral Large 2 (123B)", "desc": "Mistral'in 123B parametreli amiral gemisi"},
+                 {"value": "mistralai/mixtral-8x22b-instruct", "label": "Mixtral 8x22B (MoE)", "desc": "Yüksek kapasiteli Mixture-of-Experts mimarisi"},
+                 {"value": "qwen/qwen2.5-72b-instruct", "label": "Qwen 2.5 72B (Güçlü Çok Dilli)", "desc": "Zengin Türkçe kelime haznesi ve dil desteği"},
+                 {"value": "custom", "label": "✏️ Özel Model (Elle Girin)", "desc": "build.nvidia.com üzerindeki model ID'sini yazın"},
+             ],
+             "show_when": {"field": "AI_PROVIDER", "in": ["nvidia"]}},
+            {"key": "NVIDIA_CUSTOM_MODEL", "label": "Özel NVIDIA Model Adı", "type": "text",
+             "placeholder": "örn: meta/llama-3.1-405b-instruct",
+             "show_when": {"field": "NVIDIA_MODEL", "in": ["custom"]}},
+
+            # --- OpenAI ---
             {"key": "OPENAI_API_KEY", "label": "OpenAI API Key", "type": "password", "secret": True,
              "required": True, "show_when": {"field": "AI_PROVIDER", "in": ["openai"]}},
-            {"key": "OPENAI_CHAT_MODEL", "label": "OpenAI Modeli (opsiyonel)", "type": "text",
+            {"key": "OPENAI_CHAT_MODEL", "label": "OpenAI Modeli", "type": "select",
+             "options": [
+                 {"value": "gpt-4o-mini", "label": "GPT-4o Mini (Hızlı & Ekonomik)", "desc": "Düşük maliyetli, yüksek hızlı ve zeki"},
+                 {"value": "gpt-4o", "label": "GPT-4o (Amiral Gemisi)", "desc": "Gelişmiş akıl yürütme ve yüksek kalite"},
+                 {"value": "o3-mini", "label": "o3-mini (Muhakeme / Reasoning)", "desc": "Karmaşık mantıksal görevler için muhakeme modeli"},
+                 {"value": "custom", "label": "✏️ Özel Model (Elle Girin)", "desc": "OpenAI model ID'sini yazın"},
+             ],
              "show_when": {"field": "AI_PROVIDER", "in": ["openai"]}},
-            {"key": "OPENROUTER_API_KEY", "label": "OpenRouter API Key", "type": "password", "secret": True,
-             "required": True, "show_when": {"field": "AI_PROVIDER", "in": ["openrouter"]}},
-            {"key": "OPENROUTER_MODEL", "label": "OpenRouter Modeli (opsiyonel)", "type": "text",
-             "show_when": {"field": "AI_PROVIDER", "in": ["openrouter"]}},
-            {"key": "NVIDIA_API_KEY", "label": "NVIDIA API Key", "type": "password", "secret": True,
-             "required": True, "show_when": {"field": "AI_PROVIDER", "in": ["nvidia"]}},
-            {"key": "NVIDIA_MODEL", "label": "NVIDIA Modeli (opsiyonel)", "type": "text",
-             "show_when": {"field": "AI_PROVIDER", "in": ["nvidia"]}},
+            {"key": "OPENAI_CUSTOM_MODEL", "label": "Özel OpenAI Model Adı", "type": "text",
+             "placeholder": "örn: gpt-4-turbo",
+             "show_when": {"field": "OPENAI_CHAT_MODEL", "in": ["custom"]}},
         ],
     },
     {
@@ -341,15 +424,15 @@ SETTINGS_SCHEMA = [
 # Anahtar başına "nasıl alınır?" bilgisi (adım + bağlantı). Tek kaynak; hem web
 # hem mobil bu bilgiyi info butonunda gösterir.
 HELP = {
-    "GROQ_API_KEY": ("Groq: console.groq.com → API Keys → Create API Key. Ücretsiz.",
+    "GROQ_API_KEY": ("Groq: console.groq.com → API Keys → Create API Key. Tamamen ücretsiz.",
                      "https://console.groq.com/keys"),
     "GEMINI_API_KEY": ("Google AI Studio: aistudio.google.com → Get API key. Ücretsiz kota var.",
                        "https://aistudio.google.com/apikey"),
-    "OPENAI_API_KEY": ("OpenAI: platform.openai.com → API keys → Create new secret key. Ücretli.",
+    "OPENAI_API_KEY": ("OpenAI: platform.openai.com → API keys → Create new secret key.",
                        "https://platform.openai.com/api-keys"),
-    "OPENROUTER_API_KEY": ("OpenRouter: openrouter.ai → Keys → Create Key. Bazı modeller ücretsiz.",
+    "OPENROUTER_API_KEY": ("OpenRouter: openrouter.ai → Keys → Create Key. :free uzantılı modeller ücretsizdir.",
                            "https://openrouter.ai/keys"),
-    "NVIDIA_API_KEY": ("NVIDIA: build.nvidia.com → bir model seç → Get API Key.",
+    "NVIDIA_API_KEY": ("NVIDIA: build.nvidia.com → Get API Key. Kayıt olunca 1000 kredi ücretsiz verilir.",
                        "https://build.nvidia.com"),
     "AWS_ACCESS_KEY_ID": ("AWS: Console → IAM → Users → Security credentials → Create access key. Polly izni gerekir.",
                           "https://console.aws.amazon.com/iam/"),
@@ -379,12 +462,29 @@ def build_user_view(db, user_id: int) -> list:
     """
     user_data = _load_user(db, user_id)
     out = []
+
+    # Model alanlarında daha önceden elle yazılmış özel bir model adı varsa,
+    # select'te 'custom' olarak görünmesini ve custom input alanına yazılmasını sağla
+    legacy_custom_values = {}
+    for section in SETTINGS_SCHEMA:
+        for f in section["fields"]:
+            key = f["key"]
+            if key in _MODEL_CUSTOM_MAP:
+                uval = user_data.get(key)
+                if uval:
+                    valid_opts = [o["value"] for o in f.get("options", []) if o["value"] != "custom"]
+                    if uval not in valid_opts and uval != "custom":
+                        legacy_custom_values[_MODEL_CUSTOM_MAP[key]] = uval
+
     for section in SETTINGS_SCHEMA:
         fields = []
         for f in section["fields"]:
             key = f["key"]
             item = {k: f[k] for k in f}  # kopya
             user_val = user_data.get(key)
+            if key in legacy_custom_values and not user_val:
+                user_val = legacy_custom_values[key]
+
             has_own = user_val not in (None, "")
             env_default = getattr(_env, key, "")
             if f.get("secret"):
@@ -392,6 +492,11 @@ def build_user_view(db, user_id: int) -> list:
                 item["is_set"] = has_own                 # yalnızca kullanıcının kendi anahtarı
             else:
                 effective = user_val if has_own else env_default
+                # Eğer bir model seçici alanı ise ve değer seçenekler arasında yoksa 'custom' yap
+                if key in _MODEL_CUSTOM_MAP and effective:
+                    valid_opts = [o["value"] for o in f.get("options", []) if o["value"] != "custom"]
+                    if effective not in valid_opts:
+                        effective = "custom"
                 item["value"] = "" if effective is None else str(effective)
                 item["is_set"] = has_own
             item["own"] = has_own

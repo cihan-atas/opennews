@@ -54,16 +54,37 @@ function SchemaField({ f, draft, setVal, secretSet, colors, styles }) {
           min={f.min} max={f.max} step={f.step}
         />
       ) : f.type === 'select' ? (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {(f.options || []).map((o) => {
-            const on = (draft[f.key] ?? '') === o.value;
+        <View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {(f.options || []).map((o) => {
+              const on = (draft[f.key] ?? '') === o.value;
+              return (
+                <Pressable key={o.value} onPress={() => setVal(f.key, o.value)}
+                  style={[styles.chip, on && styles.chipOn, { borderColor: colors.border }]}>
+                  <Text style={{ color: on ? colors.white : colors.textMuted, fontWeight: '600', fontSize: 12 }}>{o.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {(() => {
+            const selectedOpt = (f.options || []).find((o) => (draft[f.key] ?? '') === o.value);
+            if (!selectedOpt?.desc) return null;
             return (
-              <Pressable key={o.value} onPress={() => setVal(f.key, o.value)}
-                style={[styles.chip, on && styles.chipOn, { borderColor: colors.border }]}>
-                <Text style={{ color: on ? colors.white : colors.textMuted, fontWeight: '600', fontSize: 12 }}>{o.label}</Text>
-              </Pressable>
+              <View style={{
+                marginTop: 8,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: radius.sm,
+                backgroundColor: colors.surfaceAlpha,
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}>
+                <Text style={{ color: colors.primaryLight, fontSize: 11, lineHeight: 16 }}>
+                  💡 {selectedOpt.desc}
+                </Text>
+              </View>
             );
-          })}
+          })()}
         </View>
       ) : (
         <TextInput
@@ -73,7 +94,7 @@ function SchemaField({ f, draft, setVal, secretSet, colors, styles }) {
           secureTextEntry={f.type === 'password'}
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder={f.secret && secretSet[f.key] ? '•••••••• (değiştirmek için yaz)' : ''}
+          placeholder={f.placeholder || (f.secret && secretSet[f.key] ? '•••••••• (değiştirmek için yaz)' : '')}
           placeholderTextColor={colors.textFaint}
         />
       )}
