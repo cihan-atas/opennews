@@ -19,9 +19,51 @@ function fieldVisible(field, draft) {
   return (cond.in || []).includes(draft[cond.field]);
 }
 
+const CATEGORY_LABELS = {
+  all: 'Tümü',
+  recommended: '⭐ Önerilen',
+  free: '🆓 Ücretsiz',
+  smart: '🧠 Zeka / Akıl',
+  fast: '⚡ Hızlı',
+  new: '🚀 Yeni',
+  popular: '🔥 Popüler',
+  classic: 'Klasik',
+  special: 'Özel',
+  custom: '✏️ Özel',
+};
+
 // Tek bir şema alanı. MODÜL DÜZEYİNDE tanımlı → TextInput'lar her tuşta
 // remount olmaz (klavye kapanma hatası).
 function SchemaField({ f, draft, setVal, secretSet, colors, styles }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [catFilter, setCatFilter] = useState('all');
+
+  const isModelPicker = f.type === 'select' && (f.key.includes('MODEL') || (f.options || []).length > 6);
+  const selectedOpt = (f.options || []).find((o) => (draft[f.key] ?? '') === o.value);
+  const availableCats = useMemo(() => {
+    if (!f.options) return [];
+    const set = new Set(f.options.map((o) => o.category).filter(Boolean));
+    return ['all', ...set];
+  }, [f.options]);
+
+  const filteredOptions = useMemo(() => {
+    if (!f.options) return [];
+    return f.options.filter((o) => {
+      if (catFilter !== 'all' && o.category !== catFilter) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        return (
+          o.label.toLowerCase().includes(q) ||
+          o.value.toLowerCase().includes(q) ||
+          (o.desc && o.desc.toLowerCase().includes(q)) ||
+          (o.badge && o.badge.toLowerCase().includes(q))
+        );
+      }
+      return true;
+    });
+  }, [f.options, catFilter, search]);
+
   return (
     <View style={{ marginBottom: 12 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
@@ -53,6 +95,149 @@ function SchemaField({ f, draft, setVal, secretSet, colors, styles }) {
           colors={colors}
           min={f.min} max={f.max} step={f.step}
         />
+      ) : isModelPicker ? (
+        <View>
+          <Pressable
+            onPress={() => setPickerOpen(true)}
+            style={{
+              padding: 12,
+              borderRadius: radius.md,
+              backgroundColor: colors.surfaceAlpha,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  <Text style={{ color: colors.primaryLight, fontSize: 13, fontWeight: '800' }}>
+                    {selectedOpt?.label || draft[f.key] || 'Model Seçin'}
+                  </Text>
+                  {selectedOpt?.badge && (
+                    <View style={{ backgroundColor: 'rgba(99, 102, 241, 0.2)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                      <Text style={{ color: colors.primaryLight, fontSize: 10, fontWeight: '800' }}>{selectedOpt.badge}</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={{ color: colors.textMuted, fontSize: 11 }} numberOfLines={1}>
+                  {selectedOpt?.desc || (draft[f.key] ? `ID: ${draft[f.key]}` : 'Tıklayarak model seçin')}
+                </Text>
+              </View>
+              <View style={{ backgroundColor: colors.primarySoft, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.primaryLight }}>
+                <Text style={{ color: colors.white, fontSize: 11, fontWeight: '800' }}>Değiştir ▾</Text>
+              </View>
+            </View>
+          </Pressable>
+
+          {/* Searchable Modal */}
+          <Modal
+            visible={pickerOpen}
+            animationType="slide"
+            transparent={true}
+            onRequestClose={() => { setPickerOpen(false); setSearch(''); setCatFilter('all'); }}
+          >
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' }}>
+              <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '85%', paddingBottom: 20 }}>
+                {/* Header */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 18, paddingBottom: 12, borderBottomWidth: 1, borderColor: colors.border }}>
+                  <View>
+                    <Text style={{ color: colors.text, fontSize: 16, fontWeight: '800' }}>{f.label}</Text>
+                    <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 1 }}>{f.options?.length || 0} hazır model mevcut</Text>
+                  </View>
+                  <Pressable
+                    hitSlop={12}
+                    onPress={() => { setPickerOpen(false); setSearch(''); setCatFilter('all'); }}
+                    style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.sm, backgroundColor: colors.surfaceAlpha }}
+                  >
+                    <Text style={{ color: colors.primaryLight, fontSize: 13, fontWeight: '700' }}>Kapat</Text>
+                  </Pressable>
+                </View>
+
+                {/* Search Input */}
+                <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6 }}>
+                  <TextInput
+                    style={[styles.input, { borderColor: colors.border, color: colors.text, marginBottom: 0, paddingVertical: 8, fontSize: 13 }]}
+                    placeholder="🔍 Model ara (örn: 70b, free, gemma, flash)..."
+                    placeholderTextColor={colors.textFaint}
+                    value={search}
+                    onChangeText={setSearch}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+
+                {/* Category Filter Chips */}
+                {availableCats.length > 2 && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 6, paddingVertical: 6 }}>
+                    {availableCats.map((cat) => (
+                      <Pressable
+                        key={cat}
+                        onPress={() => setCatFilter(cat)}
+                        style={[
+                          styles.chip,
+                          catFilter === cat && styles.chipOn,
+                          { paddingVertical: 5, paddingHorizontal: 11, borderColor: colors.border }
+                        ]}
+                      >
+                        <Text style={{ color: catFilter === cat ? colors.white : colors.textMuted, fontSize: 11, fontWeight: '700' }}>
+                          {CATEGORY_LABELS[cat] || cat}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                )}
+
+                {/* Model List */}
+                <ScrollView style={{ paddingHorizontal: 16, marginTop: 4 }}>
+                  {filteredOptions.length === 0 ? (
+                    <View style={{ padding: 28, alignItems: 'center' }}>
+                      <Text style={{ color: colors.textDim, fontSize: 13 }}>Aradığınız kriterlere uygun model bulunamadı.</Text>
+                    </View>
+                  ) : (
+                    filteredOptions.map((o) => {
+                      const isSelected = (draft[f.key] ?? '') === o.value;
+                      return (
+                        <Pressable
+                          key={o.value}
+                          onPress={() => {
+                            setVal(f.key, o.value);
+                            setPickerOpen(false);
+                            setSearch('');
+                            setCatFilter('all');
+                          }}
+                          style={{
+                            padding: 12,
+                            marginBottom: 8,
+                            borderRadius: radius.md,
+                            backgroundColor: isSelected ? colors.primarySoft : colors.surfaceAlpha,
+                            borderWidth: 1,
+                            borderColor: isSelected ? colors.primaryLight : colors.border,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <Text style={{ color: isSelected ? colors.primaryLight : colors.text, fontSize: 13, fontWeight: '700', flex: 1, marginRight: 8 }}>
+                              {isSelected ? '✓ ' : ''}{o.label}
+                            </Text>
+                            {o.badge && (
+                              <View style={{ backgroundColor: isSelected ? colors.primaryLight : 'rgba(99, 102, 241, 0.18)', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5 }}>
+                                <Text style={{ color: isSelected ? colors.white : colors.primaryLight, fontSize: 10, fontWeight: '800' }}>{o.badge}</Text>
+                              </View>
+                            )}
+                          </View>
+                          {o.desc && (
+                            <Text style={{ color: isSelected ? colors.text : colors.textDim, fontSize: 11, lineHeight: 15 }}>
+                              {o.desc}
+                            </Text>
+                          )}
+                        </Pressable>
+                      );
+                    })
+                  )}
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
+        </View>
       ) : f.type === 'select' ? (
         <View>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -67,8 +252,8 @@ function SchemaField({ f, draft, setVal, secretSet, colors, styles }) {
             })}
           </View>
           {(() => {
-            const selectedOpt = (f.options || []).find((o) => (draft[f.key] ?? '') === o.value);
-            if (!selectedOpt?.desc) return null;
+            const selected = (f.options || []).find((o) => (draft[f.key] ?? '') === o.value);
+            if (!selected?.desc) return null;
             return (
               <View style={{
                 marginTop: 8,
@@ -80,7 +265,7 @@ function SchemaField({ f, draft, setVal, secretSet, colors, styles }) {
                 borderColor: colors.border,
               }}>
                 <Text style={{ color: colors.primaryLight, fontSize: 11, lineHeight: 16 }}>
-                  💡 {selectedOpt.desc}
+                  💡 {selected.desc}
                 </Text>
               </View>
             );

@@ -136,7 +136,42 @@ function ApiKeysManager({ isMobile, showToast }) {
               ) : f.type === 'select' ? (
                 <div>
                   <select style={s.input} value={draft[f.key] ?? ''} onChange={e => setVal(f.key, e.target.value)}>
-                    {(f.options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    {(() => {
+                      const hasCategories = (f.options || []).some(o => o.category);
+                      if (!hasCategories || (f.options || []).length <= 6) {
+                        return (f.options || []).map(o => (
+                          <option key={o.value} value={o.value}>
+                            {o.badge ? `[${o.badge}] ` : ''}{o.label}
+                          </option>
+                        ));
+                      }
+                      const catNames = {
+                        recommended: '⭐ Önerilen Modeller',
+                        free: '🆓 Tamamen Ücretsiz Modeller',
+                        smart: '🧠 Yüksek Zeka & Akıl Yürütme',
+                        fast: '⚡ Hızlı & Düşük Gecikmeli',
+                        new: '🚀 Yeni Nesil Modeller',
+                        popular: '🔥 Çok Popüler Modeller',
+                        classic: 'Klasik Modeller',
+                        special: 'Özel Amaçlı',
+                        custom: '✏️ Özel Model',
+                      };
+                      const groups = {};
+                      (f.options || []).forEach(o => {
+                        const cat = o.category || 'other';
+                        if (!groups[cat]) groups[cat] = [];
+                        groups[cat].push(o);
+                      });
+                      return Object.entries(groups).map(([cat, opts]) => (
+                        <optgroup key={cat} label={catNames[cat] || cat}>
+                          {opts.map(o => (
+                            <option key={o.value} value={o.value}>
+                              {o.badge ? `[${o.badge}] ` : ''}{o.label}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ));
+                    })()}
                   </select>
                   {(() => {
                     const selected = (f.options || []).find(o => o.value === (draft[f.key] ?? ''));
