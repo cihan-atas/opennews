@@ -94,3 +94,5 @@ services:
 
 volumes:
   news_and_podcast_postgres_data:
+    external: true
+    name: ai-powered-news-bulletin-and-podcast_news_and_podcast_postgres_data

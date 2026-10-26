@@ -203,11 +203,16 @@ SETTINGS_SCHEMA = [
     },
     {
         "id": "tts",
-        "title": "Seslendirme (TTS)",
-        "icon": "🔊",
+        "title": "Seslendirme (TTS) & Podcast Dili",
+        "icon": "🎙️",
         "required": True,
-        "note": "Podcast sesi için ZORUNLU. Edge ücretsiz ve anahtar gerektirmez — en kolay başlangıç.",
+        "note": "Podcast dili ve ses ayarları. Edge ücretsiz ve anahtar gerektirmez — en kolay başlangıç.",
         "fields": [
+            {"key": "PODCAST_LANG", "label": "Podcast Üretim Dili", "type": "select", "required": True,
+             "options": [
+                 {"value": "tr", "label": "Türkçe (TR)"},
+                 {"value": "en", "label": "İngilizce (EN)"},
+             ]},
             {"key": "TTS_PROVIDER", "label": "Sağlayıcı", "type": "select", "required": True,
              "options": [
                  {"value": "edge", "label": "Edge TTS (ücretsiz, anahtarsız) — önerilen"},

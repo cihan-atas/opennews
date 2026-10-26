@@ -24,6 +24,7 @@ def send(
     body: str,
     data: Optional[dict] = None,
     badge: Optional[int] = None,
+    category_id: Optional[str] = None,
 ) -> None:
     """Bir veya birden fazla Expo push token'ına bildirim gönderir.
 
@@ -46,6 +47,7 @@ def send(
             # Karşılığı: mobile/src/api/notifications.js → ANDROID_CHANNEL_ID
             "channelId": ANDROID_CHANNEL_ID,
             **({"badge": badge} if badge is not None else {}),
+            **({"categoryId": category_id} if category_id else {}),
         }
         for token in valid
     ]

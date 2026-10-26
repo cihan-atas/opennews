@@ -238,6 +238,29 @@ def create_rss_podcast(body: RssPodcastCreate, db: db_dependency, current_user: 
     return {"status": "processing"}
 
 
+@router.post("/podcast-by-article/{article_id}", status_code=status.HTTP_202_ACCEPTED)
+def create_rss_podcast_by_article(article_id: int, db: db_dependency, current_user: user_dependency, length: str = "medium"):
+    """Bildirim veya makale kartından gelen RssSeenArticle ID'si ile podcast üretimini başlatır."""
+    if length not in ("short", "medium", "long"):
+        length = "medium"
+
+    seen = db.query(models.RssSeenArticle).filter(models.RssSeenArticle.id == article_id).first()
+    if not seen:
+        raise HTTPException(status_code=404, detail="Makale bulunamadı.")
+
+    existing = db.query(models.Podcast).filter(
+        models.Podcast.user_id == current_user.id,
+        models.Podcast.title == seen.title,
+        models.Podcast.news_id.is_(None),
+    ).first()
+    if existing:
+        return {"status": "exists", "podcast_id": existing.id, "audio_url": existing.audio_url}
+
+    content = seen.summary or seen.title
+    process_rss_article_tts_task.delay(seen.title, content, current_user.id, seen.link, length)
+    return {"status": "processing"}
+
+
 # ── Saved RSS Articles ─────────────────────────────────────────────────────────
 
 @router.post("/saved", status_code=status.HTTP_201_CREATED)

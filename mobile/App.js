@@ -4,6 +4,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Notifications from 'expo-notifications';
 import { useNavigationContainerRef } from '@react-navigation/native';
+import { setupNotificationCategories, ACTION_CREATE_PODCAST } from './src/api/notifications';
+import { apiFetch } from './src/api/client';
 
 import { AuthProvider } from './src/contexts/AuthContext';
 import { PlayerProvider } from './src/contexts/PlayerContext';
@@ -83,21 +85,63 @@ export default function App() {
       }
     };
 
+    const handlePodcastAction = async (data) => {
+      try {
+        console.log('[Push Action] Podcast oluşturma tetiklendi:', data);
+        if (data?.news_id) {
+          await apiFetch(`/podcast/generate/${data.news_id}?length=medium`, { method: 'POST' });
+        } else if (data?.article_id) {
+          await apiFetch(`/rss-reader/podcast-by-article/${data.article_id}?length=medium`, { method: 'POST' });
+        } else if (data?.title) {
+          await apiFetch('/rss-reader/podcast', {
+            method: 'POST',
+            body: JSON.stringify({
+              title: data.title,
+              content: data.content || data.title,
+              source_url: data.link || null,
+              length: 'medium',
+            }),
+          });
+        }
+      } catch (err) {
+        console.warn('[Push Action] Podcast isteği hatası:', err);
+      }
+      const toPodcasts = (att = 0) => {
+        if (navigationRef.isReady()) {
+          navigationRef.navigate('Main', { screen: 'Podcasts' });
+        } else if (att < 20) {
+          setTimeout(() => toPodcasts(att + 1), 250);
+        }
+      };
+      toPodcasts();
+    };
+
+    const handleResponse = (response) => {
+      if (!response) return;
+      const actionId = response.actionIdentifier;
+      const data = response.notification?.request?.content?.data;
+      if (actionId === ACTION_CREATE_PODCAST) {
+        handlePodcastAction(data);
+      } else {
+        go(data);
+      }
+    };
+
+    setupNotificationCategories();
+
     // Uygulama açıkken gelen bildirimler
     notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
       console.log('[Push] Bildirim alındı:', notification.request.content.title);
     });
 
     // Bildirime tıklanınca (arka plan / kapalı dahil)
-    responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-      go(response.notification.request.content.data);
-    });
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(handleResponse);
 
     // Uygulama tamamen kapalıyken bildirime tıklanmışsa yukarıdaki dinleyici
     // kaçırabilir — açılışta son yanıtı bir kez kontrol et.
     Notifications.getLastNotificationResponseAsync()
       .then((response) => {
-        if (response) go(response.notification.request.content.data);
+        if (response) handleResponse(response);
       })
       .catch(() => {});
 

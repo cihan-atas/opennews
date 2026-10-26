@@ -55,11 +55,11 @@ celery_app.conf.beat_schedule = {
 }
 
 # Podcast uzunluk seçenekleri: kullanıcının seçtiği süreye göre senaryo cümle aralığı.
-# (Polly Burcu ~140 kelime/dk, Türkçe cümle ~13-15 kelime varsayımıyla.)
+# (Polly / Edge ~140 kelime/dk, Türkçe cümle ~12-15 kelime varsayımıyla.)
 PODCAST_LENGTHS = {
-    "short":  (6, 9, "30 saniye–1 dakika"),
-    "medium": (13, 18, "1–2 dakika"),
-    "long":   (26, 36, "2–4 dakika"),
+    "short":  (6, 10, "30 saniye–1 dakika"),
+    "medium": (14, 20, "1–2 dakika"),
+    "long":   (28, 40, "2–4 dakika"),
 }
 
 
@@ -120,27 +120,50 @@ def process_news_and_tts_task(news_id: int, user_id: int, length: str = "medium"
                 "2. Madde işareti veya başlık kullanma, düz metin olsun.\n\n"
                 f"İçerik:\n{news.content}"
             )
-            news.summary = ai_service.generate(short_prompt)
-            db.commit()
-            print(f"[Worker] Kısa özet kaydedildi ({len(news.summary.split())} kelime).")
+            try:
+                news.summary = ai_service.generate(short_prompt)
+                db.commit()
+                print(f"[Worker] Kısa özet kaydedildi ({len(news.summary.split())} kelime).")
+            except Exception as e:
+                print(f"[Worker] Kısa özet AI üretimi başarısız ({e}), devam ediliyor.")
 
         # 2b. Podcast TTS senaryosu (uzun, ses için) — ayrı üretilir, DB'ye kaydedilmez
         lo, hi = _length_range(length)
-        print(f"[Worker] Podcast uzunluğu: {length} → {lo}-{hi} cümle hedefi")
-        tts_prompt = (
-            "Aşağıdaki haberi Türkçe olarak akıcı bir haber anlatımı şeklinde hazırla.\n\n"
-            "KURALLAR:\n"
-            f"1. Haberin tüm önemli detaylarını, bağlamını ve sonuçlarını kapsayan {lo}-{hi} cümlelik akıcı bir anlatı oluştur. "
-            "Hedeflenen cümle sayısına olabildiğince yaklaş; içerik kısaysa arka plan ve bağlam ekleyerek zenginleştir.\n"
-            "2. Sesli okunacağından doğal bir konuşma diliyle yaz, madde işareti veya başlık kullanma.\n"
-            "3. Asla 'Bu podcast'te', 'Bu bölümde', 'Bugün size', 'Hoş geldiniz' gibi sunucu ifadeleri veya program girişleri kullanma. Doğrudan haberi anlatmaya başla.\n"
-            "4. İngilizce marka, şirket ve teknik terimlere Türkçe ek getirirken kelimenin okunuşunu baz al (örn: Google'de değil Google'da; OpenAI'ye değil OpenAI'ya; API'ye; GitHub'a).\n"
-            "5. Bu ekleri mutlaka kesme işareti (') ile ayır (örn: Google'da, OpenAI'ın, API'lar).\n\n"
-            f"İçerik:\n{news.content}"
-        )
-        summary = ai_service.generate(tts_prompt, quality=True)
+        length_desc = PODCAST_LENGTHS.get(length, PODCAST_LENGTHS["medium"])[2]
+        podcast_lang = getattr(settings_store.settings, "PODCAST_LANG", "tr") or "tr"
+        print(f"[Worker] Podcast: dil={podcast_lang}, uzunluk={length} ({length_desc}) → {lo}-{hi} cümle hedefi")
+
+        if podcast_lang == "en":
+            tts_prompt = (
+                "Based on the news below, write a comprehensive, fluent, and engaging news podcast narration script in English.\n\n"
+                "CRITICAL RULES:\n"
+                f"1. Target duration is {length_desc} ({lo} to {hi} detailed sentences, approximately 180-260 words for a 1-2 minute listen). "
+                "Even if the source content is short, expand on the story with background context, technical details, industry significance, and potential impact to meet the target duration.\n"
+                "2. The entire narration MUST be in fluent English, regardless of the source language.\n"
+                "3. Write in natural spoken news style for audio listening. DO NOT use bullet points, titles, markdown, or timestamps. Output clean continuous prose paragraphs.\n"
+                "4. Do NOT use intro/outro filler like 'Welcome to this podcast' or 'In today's episode'. Start directly with the news story.\n\n"
+                f"Title: {news.title}\n\nContent:\n{news.content}"
+            )
+        else:
+            tts_prompt = (
+                "Aşağıdaki haberi temel alarak akıcı, detaylı ve dinlemesi keyifli bir Türkçe haber podcasti seslendirme metni yaz.\n\n"
+                "ÇOK ÖNEMLİ KURALLAR:\n"
+                "1. DİL: Metin İSTİSNASIZ TAMAMEN TÜRKÇE OLMALIDIR. Kaynak metin İngilizce veya başka bir dilde olsa bile, içeriği eksiksiz şekilde Türkçeye çevirerek anlat. Kesinlikle yabancı dilde cümle veya anlatım bırakma.\n"
+                f"2. HEDEF SÜRE: Hedef dinleme süresi {length_desc} ({lo} ila {hi} kapsamlı cümle, yaklaşık 180-260 kelime). Kaynak içerik kısa olsa dahi, konunun arka planını, sektördeki yerini, teknik detaylarını ve olası etkilerini açıklayarak hedef süreye ve kelime sayısına mutlaka ulaş.\n"
+                "3. SESLENDİRME DOĞALLIĞI: Doğal bir radyo ve podcast konuşma dili kullan. Madde işaretleri, başlıklar, yıldızlar (*), parantez içi açıklamalar KULLANMA. Düz ve akıcı paragraflar halinde yaz.\n"
+                "4. GİRİŞ CÜMLELERİ KULLANMA: 'Bu podcast'te', 'Bu bölümde', 'Bugün size', 'Hoş geldiniz' gibi sunucu klişeleri kullanma. Doğrudan haberi anlatmaya başla.\n"
+                "5. YABANCI KELİMELER VE EKLER: İngilizce marka, şirket ve teknik terimlere Türkçe ek getirirken kelimenin okunuşunu baz al ve kesme işareti (') ile ayır (örn: Google'da, OpenAI'ın, API'lar, GitHub'a).\n\n"
+                f"Başlık: {news.title}\n\nİçerik:\n{news.content}"
+            )
+
+        try:
+            summary = ai_service.generate(tts_prompt, quality=True)
+        except Exception as e:
+            print(f"[Worker] AI senaryo üretimi başarısız ({e}) → içeriğe düşülüyor.")
+            summary = None
+
         if not summary or not summary.strip():
-            print("[Worker] Senaryo boş döndü → kısa özete düşülüyor.")
+            print("[Worker] Senaryo boş döndü → kısa özete/içeriğe düşülüyor.")
             summary = news.summary or (news.content or "")[:1200]
         print(f"[Worker] TTS senaryosu oluşturuldu ({len(summary.split())} kelime).")
 
@@ -153,9 +176,12 @@ def process_news_and_tts_task(news_id: int, user_id: int, length: str = "medium"
             print("[Worker] Embedding kaydedildi.")
 
         # 3. Metni Türkçe/İngilizce segmentlere böl
-        print("[Worker] Dil segmentasyonu yapılıyor...")
-        segments = ai_service.segment_for_tts(summary)
-        print(f"[Worker] {len(segments)} segment — TR/EN çift ses ile sentezleniyor...")
+        print(f"[Worker] Dil segmentasyonu yapılıyor (dil={podcast_lang})...")
+        if podcast_lang == "en":
+            segments = [{"text": summary, "lang": "en"}]
+        else:
+            segments = ai_service.segment_for_tts(summary, lang="tr")
+        print(f"[Worker] {len(segments)} segment sentezleniyor...")
 
         # 4. TTS ile .mp3 üret
         audio_bytes = tts_service.synthesize_segmented(segments)
@@ -251,7 +277,11 @@ def auto_generate_summaries_and_embeddings_task():
 
             except Exception as inner_e:
                 db.rollback()
+                err_str = str(inner_e).lower()
                 print(f"[AI Pipeline] Haber işlenirken pürüz çıktı ({news.id}): {inner_e}")
+                if "429" in err_str or "resource_exhausted" in err_str or "quota" in err_str or "rate limit" in err_str:
+                    print("[AI Pipeline] AI kotası / hız sınırı aşıldı, döngü sonlandırılıyor.")
+                    break
                 continue
 
         return {"status": "success", "processed_count": len(unprocessed_news)}
@@ -271,22 +301,47 @@ def process_rss_article_tts_task(title: str, content: str, user_id: int, source_
     _uctx = settings_store.user_context(user_id); _uctx.__enter__()  # kullanıcının kendi anahtarları
     try:
         lo, hi = _length_range(length)
-        prompt = (
-            "Aşağıdaki haberi Türkçe olarak akıcı bir haber anlatımı şeklinde hazırla.\n\n"
-            "KURALLAR:\n"
-            f"1. Haberin tüm önemli detaylarını, bağlamını ve sonuçlarını kapsayan {lo}-{hi} cümlelik akıcı bir anlatı oluştur. "
-            "Hedeflenen cümle sayısına olabildiğince yaklaş; içerik kısaysa arka plan ve bağlam ekleyerek zenginleştir.\n"
-            "2. Sesli okunacağından doğal bir konuşma diliyle yaz, madde işareti veya başlık kullanma.\n"
-            "3. Asla 'Bu podcast'te', 'Bu bölümde', 'Bugün size', 'Hoş geldiniz' gibi sunucu ifadeleri veya program girişleri kullanma. Doğrudan haberi anlatmaya başla.\n"
-            "4. İngilizce marka, şirket ve teknik terimlere Türkçe ek getirirken kelimenin okunuşunu baz al (örn: Google'de değil Google'da; OpenAI'ye değil OpenAI'ya; API'ye; GitHub'a).\n"
-            "5. Bu ekleri mutlaka kesme işareti (') ile ayır (örn: Google'da, OpenAI'ın, API'lar).\n\n"
-            f"Başlık: {title}\n\nİçerik: {content[:3000]}"
-        )
-        summary = ai_service.generate(prompt, quality=True)
+        length_desc = PODCAST_LENGTHS.get(length, PODCAST_LENGTHS["medium"])[2]
+        podcast_lang = getattr(settings_store.settings, "PODCAST_LANG", "tr") or "tr"
+        print(f"[RSS] Podcast: dil={podcast_lang}, uzunluk={length} ({length_desc}) → {lo}-{hi} cümle hedefi")
+
+        if podcast_lang == "en":
+            prompt = (
+                "Based on the news below, write a comprehensive, fluent, and engaging news podcast narration script in English.\n\n"
+                "CRITICAL RULES:\n"
+                f"1. Target duration is {length_desc} ({lo} to {hi} detailed sentences, approximately 180-260 words for a 1-2 minute listen). "
+                "Even if the source content is short, expand on the story with background context, technical details, industry significance, and potential impact to meet the target duration.\n"
+                "2. The entire narration MUST be in fluent English, regardless of the source language.\n"
+                "3. Write in natural spoken news style for audio listening. DO NOT use bullet points, titles, markdown, or timestamps. Output clean continuous prose paragraphs.\n"
+                "4. Do NOT use intro/outro filler like 'Welcome to this podcast' or 'In today's episode'. Start directly with the news story.\n\n"
+                f"Title: {title}\n\nContent:\n{content[:4000]}"
+            )
+        else:
+            prompt = (
+                "Aşağıdaki haberi temel alarak akıcı, detaylı ve dinlemesi keyifli bir Türkçe haber podcasti seslendirme metni yaz.\n\n"
+                "ÇOK ÖNEMLİ KURALLAR:\n"
+                "1. DİL: Metin İSTİSNASIZ TAMAMEN TÜRKÇE OLMALIDIR. Kaynak metin İngilizce veya başka bir dilde olsa bile, içeriği eksiksiz şekilde Türkçeye çevirerek anlat. Kesinlikle yabancı dilde cümle veya anlatım bırakma.\n"
+                f"2. HEDEF SÜRE: Hedef dinleme süresi {length_desc} ({lo} ila {hi} kapsamlı cümle, yaklaşık 180-260 kelime). Kaynak içerik kısa olsa dahi, konunun arka planını, sektördeki yerini, teknik detaylarını ve olası etkilerini açıklayarak hedef süreye ve kelime sayısına mutlaka ulaş.\n"
+                "3. SESLENDİRME DOĞALLIĞI: Doğal bir radyo ve podcast konuşma dili kullan. Madde işaretleri, başlıklar, yıldızlar (*), parantez içi açıklamalar KULLANMA. Düz ve akıcı paragraflar halinde yaz.\n"
+                "4. GİRİŞ CÜMLELERİ KULLANMA: 'Bu podcast'te', 'Bu bölümde', 'Bugün size', 'Hoş geldiniz' gibi sunucu klişeleri kullanma. Doğrudan haberi anlatmaya başla.\n"
+                "5. YABANCI KELİMELER VE EKLER: İngilizce marka, şirket ve teknik terimlere Türkçe ek getirirken kelimenin okunuşunu baz al ve kesme işareti (') ile ayır (örn: Google'da, OpenAI'ın, API'lar, GitHub'a).\n\n"
+                f"Başlık: {title}\n\nİçerik:\n{content[:4000]}"
+            )
+
+        try:
+            summary = ai_service.generate(prompt, quality=True)
+        except Exception as e:
+            print(f"[RSS] AI senaryo üretimi başarısız ({e}) → ham içeriğe düşülüyor.")
+            summary = None
+
         if not summary or not summary.strip():
             print("[Worker] RSS senaryosu boş döndü → ham içeriğe düşülüyor.")
             summary = (content or "")[:1200]
-        segments = ai_service.segment_for_tts(summary)
+
+        if podcast_lang == "en":
+            segments = [{"text": summary, "lang": "en"}]
+        else:
+            segments = ai_service.segment_for_tts(summary, lang="tr")
 
         audio_bytes = tts_service.synthesize_segmented(segments)
         with open(tmp_path, "wb") as f:
@@ -367,26 +422,46 @@ def process_bulletin_tts_task(news_ids: list, user_id: int, title: str):
             parts.append(f"- {n.title}\n{n.summary or n.content[:500]}")
 
         joined = "\n\n".join(parts)
-        bulletin_prompt = (
-            "Aşağıda günün haber başlıkları ve kısa özetleri var. Bunları tek bir akıcı, "
-            "Türkçe haber bülteni senaryosu haline getir.\n\n"
-            "KURALLAR:\n"
-            "1. Kısa bir karşılama cümlesiyle başla (örn. 'Günün öne çıkan haberlerine geçiyoruz.').\n"
-            "2. Her haberi 2-3 cümleyle, aralarında doğal geçişlerle ('Bir diğer gelişme...', "
-            "'Öte yandan...') anlat.\n"
-            "3. Sesli okunacağından doğal konuşma diliyle yaz; madde işareti veya başlık kullanma.\n"
-            "4. Kısa bir kapanış cümlesiyle bitir.\n"
-            "5. İngilizce marka/terimlere Türkçe ek getirirken okunuşu baz al ve kesme işaretiyle ayır "
-            "(örn. Google'da, OpenAI'ın, API'lar).\n\n"
-            f"Haberler:\n{joined}"
-        )
-        script = ai_service.generate(bulletin_prompt, quality=True)
+        podcast_lang = getattr(settings_store.settings, "PODCAST_LANG", "tr") or "tr"
+        if podcast_lang == "en":
+            bulletin_prompt = (
+                "Below are news headlines and summaries. Combine them into a single, fluent, engaging English news bulletin podcast script.\n\n"
+                "RULES:\n"
+                "1. Start with a brief, professional opening (e.g. 'Here are the top stories for today.').\n"
+                "2. Cover each news item in 2-3 sentences with natural conversational transitions between stories.\n"
+                "3. Write in natural spoken English for audio listening; do not use bullet points, titles, or markdown.\n"
+                "4. End with a short wrap-up sentence.\n\n"
+                f"Stories:\n{joined}"
+            )
+        else:
+            bulletin_prompt = (
+                "Aşağıda günün haber başlıkları ve kısa özetleri var. Bunları tek bir akıcı, "
+                "Türkçe haber bülteni senaryosu haline getir.\n\n"
+                "KURALLAR:\n"
+                "1. Kısa bir karşılama cümlesiyle başla (örn. 'Günün öne çıkan haberlerine geçiyoruz.').\n"
+                "2. Her haberi 2-3 cümleyle, aralarında doğal geçişlerle ('Bir diğer gelişme...', "
+                "'Öte yandan...') anlat.\n"
+                "3. Sesli okunacağından doğal konuşma diliyle yaz; madde işareti veya başlık kullanma.\n"
+                "4. Kısa bir kapanış cümlesiyle bitir.\n"
+                "5. İngilizce marka/terimlere Türkçe ek getirirken okunuşu baz al ve kesme işaretiyle ayır "
+                "(örn. Google'da, OpenAI'ın, API'lar).\n\n"
+                f"Haberler:\n{joined}"
+            )
+        try:
+            script = ai_service.generate(bulletin_prompt, quality=True)
+        except Exception as e:
+            print(f"[Bulletin] AI senaryo üretimi başarısız ({e}) → birleştirilmiş özetlere düşülüyor.")
+            script = None
+
         if not script or not script.strip():
             print("[Bulletin] Senaryo boş döndü → birleştirilmiş özetlere düşülüyor.")
             script = joined
         print(f"[Bulletin] Senaryo üretildi ({len(script.split())} kelime, {len(news_items)} haber).")
 
-        segments = ai_service.segment_for_tts(script)
+        if podcast_lang == "en":
+            segments = [{"text": script, "lang": "en"}]
+        else:
+            segments = ai_service.segment_for_tts(script, lang="tr")
         audio_bytes = tts_service.synthesize_segmented(segments)
         with open(tmp_path, "wb") as f:
             f.write(audio_bytes)
@@ -475,7 +550,7 @@ def _notify_user(db, user_id: int, news_title: str) -> None:
             push_service.send(
                 token_values,
                 title="Podcast hazır! 🎙️",
-                body=news_title[:80],
+                body=f"'{news_title[:60]}' podcast'iniz hazır, dinlemek için dokunun.",
                 data={"type": "podcast_ready"},
             )
     except Exception as e:
@@ -850,17 +925,21 @@ def _send_rule_notification(db, rule, new_rows: list, batch_stamp) -> None:
         for row in new_rows[:MAX_INDIVIDUAL_PER_RUN]:
             feed = row.feed_title or list_name
             if is_news:
+                nid = _news_id_for_link(db, row.link)
                 data = {"type": "news_article", "rule_id": rule.id,
-                        "news_id": _news_id_for_link(db, row.link),
-                        "category_id": rule.category_id}
+                        "news_id": nid, "article_id": row.id,
+                        "category_id": rule.category_id,
+                        "title": row.title, "link": row.link}
             else:
                 data = {"type": "rss_article", "article_id": row.id,
-                        "list_id": rule.list_id, "rule_id": rule.id}
+                        "list_id": rule.list_id, "rule_id": rule.id,
+                        "title": row.title, "link": row.link}
             push_service.send(
                 tokens,
                 title=f"{icon} {rule_name} · {feed}"[:100],
                 body=row.title[:120],
                 data=data,
+                category_id="ARTICLE_NOTIFICATION",
             )
         print(f"[Bildirim] Kural {rule.id}: {min(len(new_rows), MAX_INDIVIDUAL_PER_RUN)} ayrı bildirim.")
 

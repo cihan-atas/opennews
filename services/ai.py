@@ -38,14 +38,51 @@ def generate(prompt: str, quality: bool = False, temperature: float = None, syst
     """
     provider = settings.AI_PROVIDER
     if provider == "gemini":
-        return _gemini_generate(prompt, temperature=temperature, system_prompt=system_prompt)
+        try:
+            return _gemini_generate(prompt, temperature=temperature, system_prompt=system_prompt)
+        except Exception as e:
+            print(f"[AI] Gemini failed: {e}")
+            if settings.GROQ_API_KEY:
+                print("[AI] Falling back to Groq...")
+                kwargs = {}
+                if temperature is not None:
+                    kwargs["temperature"] = temperature
+                if system_prompt is not None:
+                    kwargs["system_prompt"] = system_prompt
+                try:
+                    return _groq_generate(prompt, quality=quality, **kwargs)
+                except Exception as ge:
+                    print(f"[AI] Fallback Groq failed: {ge}")
+            if settings.OPENROUTER_API_KEY:
+                print("[AI] Falling back to OpenRouter...")
+                try:
+                    return _openrouter_generate(prompt)
+                except Exception as oe:
+                    print(f"[AI] Fallback OpenRouter failed: {oe}")
+            raise
     if provider == "groq":
         kwargs = {}
         if temperature is not None:
             kwargs["temperature"] = temperature
         if system_prompt is not None:
             kwargs["system_prompt"] = system_prompt
-        return _groq_generate(prompt, quality=quality, **kwargs)
+        try:
+            return _groq_generate(prompt, quality=quality, **kwargs)
+        except Exception as e:
+            print(f"[AI] Groq failed: {e}")
+            if settings.GEMINI_API_KEY:
+                print("[AI] Falling back to Gemini...")
+                try:
+                    return _gemini_generate(prompt, temperature=temperature, system_prompt=system_prompt)
+                except Exception as ge:
+                    print(f"[AI] Fallback Gemini failed: {ge}")
+            if settings.OPENROUTER_API_KEY:
+                print("[AI] Falling back to OpenRouter...")
+                try:
+                    return _openrouter_generate(prompt)
+                except Exception as oe:
+                    print(f"[AI] Fallback OpenRouter failed: {oe}")
+            raise
     if provider == "openai":
         return _openai_generate(prompt)
     if provider == "openrouter":
@@ -87,7 +124,7 @@ def prepare_tts_script(text: str) -> str:
     return _symbol_cleanup(text)
 
 
-def segment_for_tts(text: str) -> list:
+def segment_for_tts(text: str, lang: str = None) -> list:
     """Metni Türkçe/İngilizce segmentlere böler, TTS normalizasyonu uygular.
 
     Aynı anda iki iş yapar:
@@ -99,9 +136,13 @@ def segment_for_tts(text: str) -> list:
     Dönen format: [{"text": "...", "lang": "tr"}, {"text": "...", "lang": "en"}, ...]
     Hata durumunda tek 'tr' segmenti döner.
     """
+    effective_lang = lang or getattr(settings, "PODCAST_LANG", "tr") or "tr"
+    cleaned = _symbol_cleanup(text)
+    if effective_lang == "en":
+        return [{"text": cleaned, "lang": "en"}]
+
     import json
 
-    cleaned = _symbol_cleanup(text)
     if settings.TTS_PROVIDER == "polly":
         return [{"text": cleaned, "lang": "tr"}]
 
@@ -204,14 +245,23 @@ KURALLAR:
 Metin:
 {text}"""
 
-    # Doğrudan Groq kullanılır. (Eski Gemini denemesi mevcut key ile her zaman 429
-    # dönüyordu → gereksiz ~2 sn gecikme + log kirliliği; kaldırıldı — bkz. detay.md.)
     sys_prompt = "Sen gelişmiş bir Türkçe TTS hazırlık asistanısın. Görevin, verilen metindeki İngilizce kelimeleri Türkçe fonetik yazımlarıyla değiştirmek ve sadece düz metin döndürmektir."
-    try:
-        result = _groq_generate(prompt, quality=True, temperature=0.1, system_prompt=sys_prompt)
-    except Exception as e:
-        print(f"[AI] Phonetization Groq failed: {e}")
-        return text
+    result = None
+    if settings.AI_PROVIDER == "gemini":
+        try:
+            result = _gemini_generate(prompt, temperature=0.1, system_prompt=sys_prompt)
+        except Exception as e:
+            print(f"[AI] Phonetization Gemini failed: {e}")
+    else:
+        try:
+            result = _groq_generate(prompt, quality=True, temperature=0.1, system_prompt=sys_prompt)
+        except Exception as e:
+            print(f"[AI] Phonetization Groq failed: {e}")
+            if settings.GEMINI_API_KEY:
+                try:
+                    result = _gemini_generate(prompt, temperature=0.1, system_prompt=sys_prompt)
+                except Exception as ge:
+                    print(f"[AI] Phonetization Gemini fallback failed: {ge}")
 
     if not result:
         return text

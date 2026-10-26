@@ -28,7 +28,11 @@ def synthesize(text: str) -> bytes:
     if settings.TTS_PROVIDER == "edge":
         return _edge_synthesize(text, _edge_tr_voice())
     elif settings.TTS_PROVIDER == "polly":
-        return _polly_synthesize(text, settings.POLLY_VOICE_TR)
+        try:
+            return _polly_synthesize(text, settings.POLLY_VOICE_TR)
+        except Exception as e:
+            print(f"[TTS] Polly failed: {e}, falling back to edge-tts")
+            return _edge_synthesize(text, _edge_tr_voice())
     return _google_synthesize(text)
 
 
@@ -37,15 +41,22 @@ def synthesize_segmented(segments: list) -> bytes:
 
     segments: [{"text": "...", "lang": "tr"|"en"}, ...]
     """
-    if settings.TTS_PROVIDER == "polly":
-        full_text = "".join(seg.get("text", "") for seg in segments)
-        from services import ai as ai_service
-        ssml_text = ai_service.phonetize_english_for_tr_tts(full_text)
-        return _polly_synthesize(ssml_text, settings.POLLY_VOICE_TR)
+    is_all_en = bool(segments) and all(seg.get("lang") == "en" for seg in segments)
 
-    if settings.TTS_PROVIDER != "edge":
+    if settings.TTS_PROVIDER == "polly":
+        try:
+            full_text = "".join(seg.get("text", "") for seg in segments)
+            if is_all_en:
+                return _polly_synthesize(full_text, "Joanna")
+            from services import ai as ai_service
+            ssml_text = ai_service.phonetize_english_for_tr_tts(full_text)
+            return _polly_synthesize(ssml_text, settings.POLLY_VOICE_TR)
+        except Exception as e:
+            print(f"[TTS] Polly synthesize failed: {e}, falling back to edge-tts")
+
+    if settings.TTS_PROVIDER != "edge" and settings.TTS_PROVIDER != "polly":
         full = "".join(s["text"] for s in segments)
-        return _google_synthesize(full)
+        return _google_synthesize(full, "en-US" if is_all_en else "tr-TR")
 
     import asyncio
 
@@ -68,12 +79,12 @@ def synthesize_segmented(segments: list) -> bytes:
     return asyncio.run(_run())
 
 
-def _google_synthesize(text: str) -> bytes:
+def _google_synthesize(text: str, lang_code: str = "tr-TR") -> bytes:
     from google.cloud import texttospeech
     client = texttospeech.TextToSpeechClient()
     synthesis_input = texttospeech.SynthesisInput(text=text)
     voice = texttospeech.VoiceSelectionParams(
-        language_code="tr-TR",
+        language_code=lang_code,
         ssml_gender=texttospeech.SsmlVoiceGender.NEUTRAL,
     )
     audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)

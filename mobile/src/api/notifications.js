@@ -28,6 +28,26 @@ Notifications.setNotificationHandler({
 });
 
 const ANDROID_CHANNEL_ID = 'default';
+export const ARTICLE_CATEGORY_ID = 'ARTICLE_NOTIFICATION';
+export const ACTION_CREATE_PODCAST = 'CREATE_PODCAST';
+
+/** Bildirim etkileşim butonları (kategorileri) kaydeder. */
+export async function setupNotificationCategories() {
+  if (Platform.OS === 'web') return;
+  try {
+    await Notifications.setNotificationCategoryAsync(ARTICLE_CATEGORY_ID, [
+      {
+        identifier: ACTION_CREATE_PODCAST,
+        buttonTitle: '🎙️ 1-2 Dk Podcast Oluştur',
+        options: {
+          opensAppToForeground: true,
+        },
+      },
+    ]);
+  } catch (e) {
+    console.warn('[Push] Kategori kaydedilemedi:', e?.message || e);
+  }
+}
 
 /** Android 8+ kanal olmadan bildirimi HİÇ göstermez — izinden önce oluşturulmalı. */
 async function ensureAndroidChannel() {
@@ -58,6 +78,7 @@ export async function registerForPushNotifications() {
 
   try {
     await ensureAndroidChannel();
+    await setupNotificationCategories();
 
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;

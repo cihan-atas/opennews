@@ -80,6 +80,10 @@ class Settings(BaseSettings):
 
     # Edge TTS (TTS_PROVIDER=edge için)
     EDGE_TTS_VOICE: str = "tr-TR-EmelNeural"
+    EDGE_TTS_VOICE_EN: str = "en-US-AriaNeural"
+
+    # Podcast Varsayılan Dili (tr | en)
+    PODCAST_LANG: str = "tr"
 
     # Bildirim sessiz saatleri — RSS bildirim kuralları bu aralıkta gönderim yapmaz.
     # Biriken haberler aralık bitince tek özet olarak gider (bkz. worker._in_quiet_hours).
